@@ -1,9 +1,9 @@
-name: Build Windows VST3
+name: Build Skelly EQ
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -11,14 +11,14 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build
         run: cmake --build build --config Release --parallel 2
-      - name: Package
+      - name: Package VST3
         shell: pwsh
         run: |
-          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle missing' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellPlugin-Windows-VST3.zip
+          $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter 'Skelly EQ.vst3' | Select-Object -First 1
+          if (-not $plugin) { throw 'VST3 bundle not found' }
+          Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-Windows-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: SkellPlugin-Windows-VST3
-          path: SkellPlugin-Windows-VST3.zip
+          name: SkellyEQ-Windows-VST3
+          path: SkellyEQ-Windows-VST3.zip
           if-no-files-found: error
