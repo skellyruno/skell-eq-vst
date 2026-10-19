@@ -56,3 +56,11 @@ Regenerate assets: `python make_assets.py` (requires Pillow). Art PNGs are inclu
 ## Source organization
 
 `Source/PluginProcessor.*` = parameters, state, audio processing; `Source/PluginEditor.*` = scaled editor, controls, A/B and menu; `Source/dsp/` = biquads, FIFO, linear-FIR placeholder; `Source/ui/` = EQ graph, rotary knob, meters, header, theme UI.
+
+## V1.1 MSVC compilation fixes (2026-10-19)
+
+- Fixed nested asynchronous `PopupMenu` callback SafePointer captures in `PluginEditor.cpp` that triggered MSVC C2440/C2119/C2439/C2512. The SafePointer is now created in the outer editor lambda and captured by value into the menu callback.
+- Resolved ambiguous `juce::Graphics::drawRect` float/int overload in `MeterPanel.cpp` by passing a typed `juce::Rectangle<float>`.
+- Changed analyzer buffer clearing literals to floating-point values to avoid MSVC C4244 template conversion warnings.
+
+**Build verification:** Source patch reviewed against the supplied GitHub Actions diagnostics; a full JUCE/MSVC compile cannot be executed in this environment. Rerun the Windows GitHub Actions workflow to confirm.
