@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include <array>
 #include <complex>
+#include <cmath>
 namespace SkellyDSP {
 struct Coeff { double b0=1,b1=0,b2=0,a1=0,a2=0;
   std::complex<double> response(double w) const {auto z=std::polar(1.0,-w);return (b0+b1*z+b2*z*z)/(1.0+a1*z+a2*z*z);}
@@ -23,7 +24,15 @@ inline Coeff design(int type,double freq,double gain,double q,double sr) {
   return {b0/a0,b1/a0,b2/a0,a1/a0,a2/a0};
 }
 class Biquad { public: Coeff c; double z1=0,z2=0;
- double tick(double x) noexcept {const auto y=c.b0*x+z1;z1=c.b1*x-c.a1*y+z2;z2=c.b2*x-c.a2*y;return y;}
+ double tick(double x) noexcept {
+  if (!std::isfinite(x)) { reset(); return 0.0; }
+  const auto y=c.b0*x+z1;
+  if (!std::isfinite(y) || std::abs(y)>1.0e8) { reset(); return 0.0; }
+  const auto nextZ1=c.b1*x-c.a1*y+z2;
+  const auto nextZ2=c.b2*x-c.a2*y;
+  if (!std::isfinite(nextZ1) || !std::isfinite(nextZ2)) { reset(); return 0.0; }
+  z1=nextZ1;z2=nextZ2;return y;
+ }
  void reset() noexcept {z1=z2=0;}
 };
 struct BandConfig {bool enabled=true,solo=false;int type=0,channel=0;double freq=1000,gain=0,q=1;};

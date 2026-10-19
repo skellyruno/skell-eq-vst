@@ -3,7 +3,9 @@
 #include <BinaryData.h>
 static juce::String selectedId(int b,const char* what){return "b"+juce::String(b+1)+"_"+what;}
 SkellyEQAudioProcessorEditor::SkellyEQAudioProcessorEditor(SkellyEQAudioProcessor& p):AudioProcessorEditor(&p),processor(p),graph(p,selected),meter(p){
- setLookAndFeel(&look);setResizable(true,true);getConstrainer()->setFixedAspectRatio(Theme::width/Theme::height);setResizeLimits(892,441,2676,1323);
+ setLookAndFeel(&look);setResizable(true,true);setResizeLimits(892,441,2676,1323);
+ // JUCE/host lifecycle: the constrainer is optional until installed.
+ if (auto* c = getConstrainer()) c->setFixedAspectRatio((double)Theme::width / Theme::height);
  frameImage=juce::ImageFileFormat::loadFrom(BinaryData::frame_png,BinaryData::frame_pngSize);
  skullImage=juce::ImageFileFormat::loadFrom(BinaryData::skull_png,BinaryData::skull_pngSize);
  graphImage=juce::ImageFileFormat::loadFrom(BinaryData::graph_bg_png,BinaryData::graph_bg_pngSize);
@@ -23,9 +25,15 @@ SkellyEQAudioProcessorEditor::SkellyEQAudioProcessorEditor(SkellyEQAudioProcesso
  init(previous,[this]{selectBand((selected+7)%8);});init(next,[this]{selectBand((selected+1)%8);});
  init(analyze,[this]{int v=((int)processor.state.getRawParameterValue("analyzeMode")->load()+1)%4;parameterSet("analyzeMode",(float)v);});
  init(stereo,[this]{parameterSet("stereoMode",0);});init(ms,[this]{parameterSet("stereoMode",1);});
- setSize((int)Theme::width,(int)Theme::height);startTimerHz(25);
+ setSize((int)Theme::width,(int)Theme::height);startTimerHz(15);
 }
-SkellyEQAudioProcessorEditor::~SkellyEQAudioProcessorEditor(){setLookAndFeel(nullptr);}
+SkellyEQAudioProcessorEditor::~SkellyEQAudioProcessorEditor(){
+ stopTimer();
+ graph.selectionChanged = nullptr;
+ // Release attachments before their parameter controls and processor references die.
+ freqAttachment.reset();gainAttachment.reset();qAttachment.reset();amountAttachment.reset();
+ setLookAndFeel(nullptr);
+}
 void SkellyEQAudioProcessorEditor::parameterSet(const juce::String& id,float v){if(auto* p=processor.state.getParameter(id)){p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(v));p->endChangeGesture();}}
 void SkellyEQAudioProcessorEditor::selectBand(int index){selected=juce::jlimit(0,7,index);processor.state.state.setProperty("selectedBand",selected,nullptr);bindKnobs();graph.repaint();}
 void SkellyEQAudioProcessorEditor::bindKnobs(){freqAttachment.reset();gainAttachment.reset();qAttachment.reset();freqKnob.setRange(20,20000,.01);gainKnob.setRange(-18,18,.01);qKnob.setRange(.1,18,.01);freqAttachment=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.state,selectedId(selected,"freq"),freqKnob);gainAttachment=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.state,selectedId(selected,"gain"),gainKnob);qAttachment=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.state,selectedId(selected,"q"),qKnob);}
@@ -43,4 +51,4 @@ void SkellyEQAudioProcessorEditor::resized(){auto sx=getWidth()/Theme::width,sy=
  place(stereo,1550,581,78,35);place(ms,1633,581,79,35);place(analyze,1537,718,85,31);
  place(amountKnob,1635,640,70,70);place(freqKnob,638,741,102,90);place(gainKnob,792,741,102,90);place(qKnob,956,741,102,90);place(previous,532,763,44,44);place(next,1112,763,44,44);
 }
-void SkellyEQAudioProcessorEditor::timerCallback(){int m=(int)processor.state.getRawParameterValue("analyzeMode")->load();const char* modes[]={"OFF","PRE","POST","ON"};analyze.setButtonText(juce::String("ANALYZE: ")+modes[juce::jlimit(0,3,m)]);phase->repaint();slope->repaint();auto type=(int)processor.state.getRawParameterValue(selectedId(selected,"type"))->load();const int indices[]={3,0,4,5,6};for(int i=0;i<5;++i)types[i]->setToggleState(type==indices[i],juce::dontSendNotification);repaint();}
+void SkellyEQAudioProcessorEditor::timerCallback(){if (!phase || !slope) return; int m=(int)processor.state.getRawParameterValue("analyzeMode")->load();const char* modes[]={"OFF","PRE","POST","ON"};analyze.setButtonText(juce::String("ANALYZE: ")+modes[juce::jlimit(0,3,m)]);phase->repaint();slope->repaint();auto type=(int)processor.state.getRawParameterValue(selectedId(selected,"type"))->load();const int indices[]={3,0,4,5,6};for(int i=0;i<5;++i)types[i]->setToggleState(type==indices[i],juce::dontSendNotification);repaint();}

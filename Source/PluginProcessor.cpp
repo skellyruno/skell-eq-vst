@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cmath>
 using namespace SkellyDSP;
 static juce::String id(int i,const char* n){return "b"+juce::String(i+1)+"_"+n;}
 SkellyEQAudioProcessor::SkellyEQAudioProcessor():AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true).withOutput("Output",juce::AudioChannelSet::stereo(),true)){}
@@ -15,7 +16,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyEQAudioProcessor::make
 }
 std::array<BandConfig,8> SkellyEQAudioProcessor::bands() const {std::array<BandConfig,8> a;for(int i=0;i<8;++i){auto val=[&](const char* s){return state.getRawParameterValue(id(i,s))->load();};a[i]={val("enabled")>.5f,val("solo")>.5f,(int)val("type"),(int)val("channel"),val("freq"),val("gain"),val("q")};}return a;}
 void SkellyEQAudioProcessor::prepareToPlay(double sr,int){for(auto& stage:filters)for(auto& channel:stage.filt)for(auto& filter:channel)filter.reset();lastSlope=-1;outputSmooth.reset(sr,.02);outputSmooth.setCurrentAndTargetValue(1);setLatencySamples(0);}
-void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&){juce::ScopedNoDenormals noDenormals;auto n=audio.getNumSamples();if(audio.getNumChannels()<2)return;auto all=bands();int slope=1+(int)state.getRawParameterValue("slope")->load(),mode=(int)state.getRawParameterValue("stereoMode")->load();
+void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&){juce::ScopedNoDenormals noDenormals;auto n=audio.getNumSamples();if(n<=0)return;if(audio.getNumChannels()<2){audio.clear();return;}auto all=bands();int slope=1+(int)state.getRawParameterValue("slope")->load(),mode=(int)state.getRawParameterValue("stereoMode")->load();
  bool anySolo=false;for(auto& b:all)anySolo|=b.solo;
  // Coefficients update at block boundaries; states persist between blocks.
  for(int i=0;i<8;++i){const auto& band=all[i];if(previous[i].enabled!=band.enabled || previous[i].type!=band.type || previous[i].freq!=band.freq || previous[i].gain!=band.gain || previous[i].q!=band.q || slope!=lastSlope){int ty=internalType(band.type);int stages=(ty==3||ty==4)?slope:1;for(int channel=0;channel<2;++channel)for(int k=0;k<4;++k)filters[i].filt[channel][k].c=k<stages?design(ty,band.freq,band.gain,stages>1?cutoffQ(k,stages):band.q,sampleRateHz()):Coeff{};previous[i]=band;}}
@@ -27,11 +28,32 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
  for(int i=0;i<8;++i){const auto& b=all[i];if(!b.enabled||(anySolo&&!b.solo))continue;int t=internalType(b.type),sections=(t==3||t==4)?slope:1;
  for(int ch=0;ch<2;++ch){bool route=mode==0?(b.channel==0||(b.channel==1&&ch==0)||(b.channel==2&&ch==1)):(b.channel==0||(b.channel==3&&ch==0)||(b.channel==4&&ch==1));if(!route)continue;for(int k=0;k<sections;++k)v[ch]=filters[i].filt[ch][k].tick(v[ch]);}}
  if(mode==1){L=(v[0]+v[1])*.7071067811865476;R=(v[0]-v[1])*.7071067811865476;}else {L=v[0];R=v[1];}
- double gain=outputSmooth.getNextValue();left[j]=(float)(L*gain);right[j]=(float)(R*gain);peak[0]=juce::jmax(peak[0],std::abs(left[j]));peak[1]=juce::jmax(peak[1],std::abs(right[j]));sum[0]+=left[j]*left[j];sum[1]+=right[j]*right[j];if(analysis>=2)analyzer.push((left[j]+right[j])*.5f);}
+ double gain=outputSmooth.getNextValue();
+ if(!std::isfinite(L)||!std::isfinite(R)){L=R=0.0;for(auto& band:filters)for(auto& channel:band.filt)for(auto& filter:channel)filter.reset();}
+ left[j]=(float)juce::jlimit(-32.0,32.0,L*gain);right[j]=(float)juce::jlimit(-32.0,32.0,R*gain);peak[0]=juce::jmax(peak[0],std::abs(left[j]));peak[1]=juce::jmax(peak[1],std::abs(right[j]));sum[0]+=left[j]*left[j];sum[1]+=right[j]*right[j];if(analysis>=2)analyzer.push((left[j]+right[j])*.5f);}
  for(int ch=0;ch<2;++ch){peaks[ch].store(peak[ch]);rms[ch].store(std::sqrt(sum[ch]/juce::jmax(1,n)));}}
 void SkellyEQAudioProcessor::getStateInformation(juce::MemoryBlock& dest){auto xml=state.copyState().createXml();copyXmlToBinary(*xml,dest);}
-void SkellyEQAudioProcessor::setStateInformation(const void* data,int bytes){if(auto xml=getXmlFromBinary(data,bytes))if(xml->hasTagName(state.state.getType()))state.replaceState(juce::ValueTree::fromXml(*xml));}
+void SkellyEQAudioProcessor::setStateInformation(const void* data,int bytes){
+ if(data == nullptr || bytes <= 0 || bytes > 32 * 1024 * 1024) return;
+ if(auto xml=getXmlFromBinary(data,bytes)) {
+  if(!xml->hasTagName(state.state.getType())) return;
+  auto restored=juce::ValueTree::fromXml(*xml);
+  if(!restored.isValid() || restored.getType()!=state.state.getType()) return;
+  state.replaceState(restored);
+ }
+}
 void SkellyEQAudioProcessor::storeSnapshot(int slot){auto snap=state.copyState();snap.setProperty("snapshotSlot",slot,nullptr);auto key=slot==0?"snapshotA":"snapshotB";state.state.removeChild(state.state.getChildWithName(key),nullptr);juce::ValueTree saved(key);for(int i=0;i<snap.getNumChildren();++i)saved.addChild(snap.getChild(i).createCopy(),-1,nullptr);state.state.addChild(saved,-1,nullptr);}
 void SkellyEQAudioProcessor::loadSnapshot(int slot){auto s=state.state.getChildWithName(slot==0?"snapshotA":"snapshotB");if(!s.isValid())return;for(int i=0;i<s.getNumChildren();++i){auto p=s.getChild(i);auto idName=p.getProperty("id").toString();if(auto* target=state.getParameter(idName)){auto val=(float)p.getProperty("value");target->setValueNotifyingHost(target->convertTo0to1(val));}}}
-juce::AudioProcessorEditor* SkellyEQAudioProcessor::createEditor(){return new SkellyEQAudioProcessorEditor(*this);}
+juce::AudioProcessorEditor* SkellyEQAudioProcessor::createEditor(){
+#if SKELLY_DIAGNOSTIC_EDITOR
+ // Plain editor: if this loads and closes, the fault lies in the full GUI path.
+ struct DiagnosticEditor final : juce::AudioProcessorEditor {
+  explicit DiagnosticEditor(juce::AudioProcessor& p):juce::AudioProcessorEditor(p) {setSize(500,180);}
+  void paint(juce::Graphics& g) override {g.fillAll(juce::Colours::black);g.setColour(juce::Colours::lightgreen);g.drawFittedText("SKELLY EQ - DIAGNOSTIC EDITOR",getLocalBounds(),juce::Justification::centred,1);}
+ };
+ return new DiagnosticEditor(*this);
+#else
+ return new SkellyEQAudioProcessorEditor(*this);
+#endif
+}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter(){return new SkellyEQAudioProcessor();}

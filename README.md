@@ -64,3 +64,14 @@ Regenerate assets: `python make_assets.py` (requires Pillow). Art PNGs are inclu
 - Changed analyzer buffer clearing literals to floating-point values to avoid MSVC C4244 template conversion warnings.
 
 **Build verification:** Source patch reviewed against the supplied GitHub Actions diagnostics; a full JUCE/MSVC compile cannot be executed in this environment. Rerun the Windows GitHub Actions workflow to confirm.
+
+
+## V1.2 FL Studio stability hardening
+
+- Audio processing now rejects invalid sample counts / unsupported mono layouts safely.
+- Biquads recover from non-finite samples and unstable filter states rather than propagating NaNs.
+- DSP output receives an emergency amplitude limit (not a transparent brickwall limiter).
+- Analyzer and editor repaint rates are reduced to limit UI load.
+- EQ graph guards against zero-size bounds during FL Studio window initialization.
+
+**Build status:** source-level stability changes only. Not validated on FL Studio / Windows in this environment. A stack trace or FL crash report is needed to establish the original crash cause.
