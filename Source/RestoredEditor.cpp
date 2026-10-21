@@ -12,6 +12,37 @@ constexpr float baseW = 1784.0f;
 constexpr float baseH = 882.0f;
 const juce::Colour green(0xff39ff3a), bright(0xff98ff8c), dark(0xff061008);
 
+// JUCE's BinaryData C++ variable names can differ between generated asset
+// headers. Look the skin up by resource name rather than requiring a generated
+// reference_skin_png symbol (which was absent in the Windows CI header).
+// Lookup/decoding happens once, on the message thread during construction.
+juce::Image loadReferenceSkin()
+{
+    auto load = [](const char* name) -> juce::Image
+    {
+        int byteCount = 0;
+        const char* bytes = BinaryData::getNamedResource(name, byteCount);
+        if (bytes != nullptr && byteCount > 0)
+            return juce::ImageFileFormat::loadFrom(bytes, static_cast<size_t>(byteCount));
+        return {};
+    };
+
+    for (const char* name : {"reference_skin_png", "reference_skin.png"})
+        if (auto image = load(name); image.isValid())
+            return image;
+
+    // Defensive fallback if the JUCE version renames the identifier.
+    for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
+    {
+        const char* name = BinaryData::namedResourceList[i];
+        const juce::String key(name);
+        if (key.containsIgnoreCase("reference") && key.containsIgnoreCase("skin"))
+            if (auto image = load(name); image.isValid())
+                return image;
+    }
+    return {};
+}
+
 void configureDial(juce::Slider& s)
 {
     s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -325,8 +356,9 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     SkellyTrace::checkpoint("restored-editor: constructor ENTER");
     // From the user's supplied Skelly EQ design. Pure decoration; interactive
     // graph and controls are independently rendered and cover baked screenshot UI.
-    skin = juce::ImageFileFormat::loadFrom(BinaryData::reference_skin_png,
-                                           BinaryData::reference_skin_pngSize);
+    skin = loadReferenceSkin();
+    if (!skin.isValid())
+        SkellyTrace::checkpoint("restored-editor: reference skin resource missing; using vector fallback");
     selectedBand = juce::jlimit(0, 7,
         (int)processor.state.state.getProperty("selectedBand", 0));
     setLookAndFeel(&look);
