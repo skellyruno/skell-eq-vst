@@ -1,77 +1,50 @@
-# Skelly EQ — JUCE VST3 / Standalone source (initial implementation)
+# Skelly EQ 1.7.0 — Rebuilt GUI / FL Studio test build
 
-Original green/black industrial eight-band EQ inspired by the supplied user reference image. Assets in `Assets/` are procedurally created in `make_assets.py`, not extracted from another plugin. JUCE 8.0.12, C++17, VST3 + Standalone. Based on the user's minimal skell-vst-template GitHub structure.
+An eight-band, stereo VST3 + Standalone parametric EQ built with JUCE 8 and CMake. The default editor is a neon-green industrial skin with a separate skull emblem and **real JUCE controls**. It no longer uses a complete screenshot as the UI background, so control labels, grid ticks, and button text cannot be drawn twice.
 
-## Build
+## Changes since v1.6
 
-Prerequisites: Git, CMake 3.22+, C++17 compiler, JUCE 8 (JUCE 7+ may require minor adaptation). Internet on the first configure, or use `-DJUCE_PATH=/absolute/path/to/JUCE` (where `CMakeLists.txt` is located).
+- Replaced the screenshot skin with a clean frame and a separate newly created skull emblem.
+- Corrected the frequency graph, scale labels, sidebar, band controls, status header and bottom strip layout.
+- Restored a 4096-point Hann-windowed spectrum analyzer. Only sample collection occurs on the audio thread; FFT calculation occurs in the editor's timer (24 Hz). OFF, PRE, POST, and ON modes. (ON currently uses post-EQ data.)
+- Improved band-handle visibility (numbers on active handles; amber outline for selected, dim ring for bypassed), mouse-wheel Q and host automation gestures for drags.
+- Added active-band SOLO, per-band channel assignment, selected-filter indication, and basic SAVE/LOAD A and B snapshot buttons.
+- Corrected snapshot storage to avoid nested copies and restored validation/persistence for saved snapshots.
+- Kept v1.4 processor algorithms, parameter IDs, state parsing rules, and fallback editor for compatibility with FL Studio projects.
+- Lifecycle file tracing is **OFF by default** for normal builds; can be enabled explicitly to troubleshoot.
 
-Windows, Visual Studio Developer Prompt:
+## Important limitations
 
-```bat
-cmake -S . -B build -A x64 -DJUCE_PATH=C:/JUCE
+This is an **unverified source release**, not a tested Windows binary. A successful ZIP checksum/static source review is not a substitute for an MSVC compile and real FL Studio testing. `phaseMode` offers three preset values for backward compatibility, but the DSP is *currently minimum phase in all modes*. **True linear-phase convolution is not implemented**, and the 'LINEAR (N/A)' UI label makes this limitation explicit. The shown combined response is a single nominal aggregate curve, not a channel-specific L/R or M/S split plot. Biquad coefficients update at block boundaries, so aggressive automation may create zipper noise. No performance comparison to FabFilter Pro-Q has been completed.
+
+## Windows — Visual Studio 2026 + GitHub Actions
+
+Push the **contents of this `SkellyEQ/` folder** into the repository root, including `.github/workflows/build.yml` and `Assets/`. On each push to `main`, GitHub Actions builds Windows VST3 and macOS VST3 artifacts (JUCE fetched from GitHub). Follow Actions -> latest **Build Skelly EQ** -> Windows artifact.
+
+Local build (JUCE 8.0.12 or compatible path):
+
+```powershell
+cmake -S . -B build -A x64 -DJUCE_PATH="C:/your/checkout/JUCE" -DSKELLY_RESTORED_EDITOR=ON
 cmake --build build --config Release --parallel 2
 ```
 
-macOS:
+Typical Windows VST3 location: `build/SkellyEQ_artefacts/Release/VST3/Skelly EQ.vst3` (exact path may vary). After replacing a VST3, restart FL Studio and run the plugin manager rescan to avoid testing a cached older binary.
 
-```sh
-cmake -S . -B build -G Xcode -DJUCE_PATH=$HOME/JUCE
-cmake --build build --config Release --parallel 2
+Safe-editor fallback if the rebuilt editor fails:
+
+```powershell
+cmake -S . -B build-safe -A x64 -DJUCE_PATH="C:/your/checkout/JUCE" -DSKELLY_RESTORED_EDITOR=OFF -DSKELLY_SAFE_EDITOR=ON
+cmake --build build-safe --config Release --parallel 2
 ```
 
-Typical output: `build/SkellyEQ_artefacts/Release/VST3/Skelly EQ.vst3` and `build/SkellyEQ_artefacts/Release/Standalone/` (actual plugin filenames and directories vary by platform). The GitHub Actions workflow builds and uploads Windows and macOS artifacts.
+Diagnostic log option (do **not** enable by default): `-DSKELLY_TRACE_LIFECYCLE=ON`. Writes checkpoints to `%APPDATA%/SkellyAudio/SkellyEQ-v1.7-trace.txt`.
 
-## Current implementation
+## Controls
 
-- Eight automatable parametric bands: peak, shelves, Butterworth low/high cut up to 48 dB/oct, notch, band pass and an **approximate** tilt mode.
-- Cascaded double-precision TDF-II biquads. Stereo L/R and M/S routing. Note: mixed channel-assignments in stereo/M/S are a first-pass implementation.
-- Analyzer: 4096-point Hann-window FFT evaluated by editor timer, with a single-producer/single-consumer audio FIFO. Configurable Off/Pre/Post/On (On currently uses Post path).
-- A green vector response graph, drag-to-edit nodes, Q via wheel or Alt-drag, right-click filter menu, double-click deletion/creation in a free slot, meter panel, and host-automatable knob controls.
-- Parameters and simple A/B snapshots saved using APVTS ValueTree; resizable fixed-aspect-ratio UI.
-- Original procedurally generated frame, central skull, graph texture, cap illustration. Fonts use OS fallback. The image and controls are intended as an editable starting point, **not a pixel-perfect replica**.
+Drag one of the eight band handles to change frequency and gain. Shift-drag is fine adjust; Control constrains to the primary direction; Alt-drag changes Q; scroll-wheel over a handle changes Q. Double-click a handle to bypass/enable its band. Double-click empty graph space to turn on and place an unused band. The selected band has editable FREQ, GAIN, Q, FILTER, CHANNEL, ACTIVE, and SOLO controls.
 
-## Explicit limitations / work remaining
+Use SAVE A/B to record a snapshot and LOAD A/B to recall. RESET CURVE overwrites all eight bands with an example preset; it never activates on load automatically. Analyzer modes are in the right pane.
 
-**This is source deliverable, not a verified release binary.** No local JUCE SDK was installed and network DNS was unavailable during the attempted CMake configure, so C++ build validation could not be completed in this environment. Use GitHub Actions or a local JUCE checkout to compile and report any errors.
+## FL Studio release checklist
 
-1. Phase control is surfaced and automatable, but **Linear, Min Phase and Zero Latency currently share the same minimum-phase IIR signal path**. A true linear-phase FIR with background coefficient generation, partitioned convolution, crossfade and host latency reporting is not yet implemented. The placeholder `Source/dsp/LinearPhaseFIR.h` documents the planned stage. **Do not use the Linear setting assuming a linear-phase response.**
-2. Low/High cut use RBJ designs, not oversampling or a Nyquist-matched bilinear design. Coefficients update per audio block without interpolation; fast automated EQ moves may zipper.
-3. A/B is a starter snapshot implementation: the active side must be saved before switching. Other preset/option behaviors are minimal. Right-click text-entry and per-band listen/solo audition are not complete.
-4. The analyzer uses a coarse fixed 256-column mapping of FFT bins, not full 1/3-octave smoothing. Its FIFO can drop frames on a stalled UI without touching realtime audio. Graph `graphRange` is stored but rendering is currently fixed to ±18 dB.
-5. Source does not embed the specific condensed/rough fonts requested; native font fallback is used. Static glow is drawn with layered vector strokes, not premultiplied blurred image caches. Asset `knob_cap.png` is ready but the knobs are vector-rendered instead.
-6. True sample-accurate parameter smoothing, comprehensive platform testing, formal CPU profiling, and oversampling are future iterations.
-
-## Image asset contract
-
-| Asset | Canvas | Alpha | Purpose |
-|---|---:|---|---|
-| `Assets/frame.png` | 1784×882 | RGBA transparent in graph and right panel interior | Decorative metallic edge trim and rivets |
-| `Assets/skull.png` | 250×215 | RGBA transparent | Original hand-drawn spiked skull crest, scaled in header |
-| `Assets/graph_bg.png` | 1450×545 | RGBA opaque | Subtle green grunge behind graph |
-| `Assets/knob_cap.png` | 96×96 | RGBA transparent | Optional runtime-rotatable metal knob overlay |
-
-Regenerate assets: `python make_assets.py` (requires Pillow). Art PNGs are included and compiled using `juce_add_binary_data`.
-
-## Source organization
-
-`Source/PluginProcessor.*` = parameters, state, audio processing; `Source/PluginEditor.*` = scaled editor, controls, A/B and menu; `Source/dsp/` = biquads, FIFO, linear-FIR placeholder; `Source/ui/` = EQ graph, rotary knob, meters, header, theme UI.
-
-## V1.1 MSVC compilation fixes (2026-10-19)
-
-- Fixed nested asynchronous `PopupMenu` callback SafePointer captures in `PluginEditor.cpp` that triggered MSVC C2440/C2119/C2439/C2512. The SafePointer is now created in the outer editor lambda and captured by value into the menu callback.
-- Resolved ambiguous `juce::Graphics::drawRect` float/int overload in `MeterPanel.cpp` by passing a typed `juce::Rectangle<float>`.
-- Changed analyzer buffer clearing literals to floating-point values to avoid MSVC C4244 template conversion warnings.
-
-**Build verification:** Source patch reviewed against the supplied GitHub Actions diagnostics; a full JUCE/MSVC compile cannot be executed in this environment. Rerun the Windows GitHub Actions workflow to confirm.
-
-
-## V1.2 FL Studio stability hardening
-
-- Audio processing now rejects invalid sample counts / unsupported mono layouts safely.
-- Biquads recover from non-finite samples and unstable filter states rather than propagating NaNs.
-- DSP output receives an emergency amplitude limit (not a transparent brickwall limiter).
-- Analyzer and editor repaint rates are reduced to limit UI load.
-- EQ graph guards against zero-size bounds during FL Studio window initialization.
-
-**Build status:** source-level stability changes only. Not validated on FL Studio / Windows in this environment. A stack trace or FL crash report is needed to establish the original crash cause.
+Read `V170_FL_STUDIO_TEST.md` before using in an existing project. Test plugin scan -> add to blank project -> open/close 10× -> play audio -> edit nodes -> project save/reopen -> A/B persistence -> close and remove plugin. Compare with the v1.4 fallback if instability returns.

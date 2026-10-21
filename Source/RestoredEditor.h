@@ -40,6 +40,8 @@ private:
         void mouseMove(const juce::MouseEvent&) override;
         std::function<void(int)> onSelection;
         juce::Image graphTexture;
+        std::array<float, 256> spectrumDb{};
+        bool hasSpectrum = false;
 
     private:
         juce::RangedAudioParameter* param(int, const char*) const;
@@ -58,6 +60,7 @@ private:
         float originalFrequency = 0, originalGain = 0, originalQ = 0;
         juce::Point<float> origin;
         juce::RangedAudioParameter* gestureParam = nullptr;
+        juce::RangedAudioParameter* gainGestureParam = nullptr;
         juce::Path cachedResponse;
         std::array<SkellyDSP::BandConfig, 8> cachedBands{};
         bool curveValid = false;
@@ -71,21 +74,27 @@ private:
     void setGlobal(const juce::String&, float);
     void setBandType(int);
     void drawMeters(juce::Graphics&);
+    void restoreReferenceCurve();
     static juce::String bandId(int, const char*);
 
-    juce::Image skin;
-    juce::ComboBox bandSelect, typeSelect, phaseSelect, slopeSelect, modeSelect;
-    juce::ToggleButton enabled {"ACTIVE"};
-    juce::Slider frequency, gain, q, output;
-    juce::TextButton options {"OPTION"}, about {"SKELLY EQ"}, previous {"<"}, next {">"};
+    juce::Image skin, skull;
+    juce::dsp::FFT fft{12};
+    std::array<float, 4096> fftInput{};
+    std::array<float, 8192> fftWork{};
+    int fftFill = 0;
+    juce::ComboBox bandSelect, typeSelect, phaseSelect, slopeSelect, modeSelect, analyzeSelect, channelSelect;
+    juce::ToggleButton enabled {"ACTIVE"}, solo {"SOLO"};
+    juce::Slider frequency, gain, q, output, analyzeAmount;
+    juce::TextButton options {"RANGE"}, about {"SKELLY EQ"}, previous {"<"}, next {">"}, resetCurve {"RESET CURVE"};
+    juce::TextButton saveA {"SAVE A"}, loadA {"LOAD A"}, saveB {"SAVE B"}, loadB {"LOAD B"};
     juce::TextButton typeButtons[5];
     juce::Label buildTag;
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SliderAttachment> freqAttachment, gainAttachment, qAttachment, outputAttachment;
-    std::unique_ptr<ComboAttachment> typeAttachment, phaseAttachment, slopeAttachment, modeAttachment;
-    std::unique_ptr<ButtonAttachment> enabledAttachment;
+    std::unique_ptr<SliderAttachment> freqAttachment, gainAttachment, qAttachment, outputAttachment, analyzeAmountAttachment;
+    std::unique_ptr<ComboAttachment> typeAttachment, phaseAttachment, slopeAttachment, modeAttachment, analyzeAttachment, channelAttachment;
+    std::unique_ptr<ButtonAttachment> enabledAttachment, soloAttachment;
     float meterPeak[2]{}, meterRms[2]{};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyEQRestoredEditor)
 };

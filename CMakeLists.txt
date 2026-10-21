@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SkellyEQ VERSION 1.5.1 LANGUAGES C CXX)
+project(SkellyEQ VERSION 1.7.0 LANGUAGES C CXX)
 include(FetchContent)
 if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
   add_subdirectory("${JUCE_PATH}" JUCE)
@@ -14,7 +14,7 @@ set(SKELLY_ASSET_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/skull.png"
   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/graph_bg.png"
   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/knob_cap.png"
-  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/reference_skin.png")
+  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/skull_emblem.png")
 foreach(asset IN LISTS SKELLY_ASSET_FILES)
   if(NOT EXISTS "${asset}")
     message(FATAL_ERROR "Missing Skelly EQ artwork asset: ${asset}")
@@ -34,10 +34,10 @@ target_link_libraries(SkellyEQ PRIVATE SkellyAssets juce::juce_audio_utils juce:
 
 # Staged V1.5 restoration is selected by default. The proven v1.4 safe editor
 # remains selectable for FL Studio crash isolation without touching processor DSP.
-option(SKELLY_RESTORED_EDITOR "Stage 1 restored skull GUI with safe response graph" ON)
+option(SKELLY_RESTORED_EDITOR "V1.7 rebuilt, clean neon skull GUI" ON)
 option(SKELLY_SAFE_EDITOR "Use safe controls editor (recommended for FL Studio)" ON)
 option(SKELLY_DIAGNOSTIC_EDITOR "Use a completely minimal diagnostic window" OFF)
-option(SKELLY_TRACE_LIFECYCLE "Log plugin load, state and editor lifecycle checkpoints" ON)
+option(SKELLY_TRACE_LIFECYCLE "Log plugin load, state and editor lifecycle checkpoints" OFF)
 target_compile_definitions(SkellyEQ PRIVATE
   SKELLY_RESTORED_EDITOR=$<BOOL:${SKELLY_RESTORED_EDITOR}>
   SKELLY_SAFE_EDITOR=$<BOOL:${SKELLY_SAFE_EDITOR}>

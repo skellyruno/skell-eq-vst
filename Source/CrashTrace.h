@@ -17,7 +17,7 @@ inline void checkpoint(const char* message)
     if (! folder.isDirectory())
         return;
 
-    auto logFile = folder.getChildFile("SkellyEQ-v1.5-trace.txt");
+    auto logFile = folder.getChildFile("SkellyEQ-v1.7-trace.txt");
     if (logFile.existsAsFile() && logFile.getSize() > 1024 * 1024)
         logFile.deleteFile();
 

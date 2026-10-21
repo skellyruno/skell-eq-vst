@@ -106,12 +106,74 @@ void SkellyEQAudioProcessor::setStateInformation(const void* data, int bytes)
     if (restored.hasProperty("selectedBand"))
         clean.setProperty("selectedBand", juce::jlimit(0, 7, (int) restored.getProperty("selectedBand")), nullptr);
 
+    // Retain the saved A/B curves across FL Studio project reloads, but do not
+    // import unknown nodes or out-of-range / NaN parameter values.
+    for (const char* key : {"snapshotA", "snapshotB"})
+    {
+        const auto incoming = restored.getChildWithName(juce::Identifier(key));
+        if (!incoming.isValid()) continue;
+        juce::ValueTree snapshot {juce::Identifier(key)};
+        for (int i = 0; i < incoming.getNumChildren(); ++i)
+        {
+            auto node = incoming.getChild(i);
+            if (node.getType() != juce::Identifier("PARAM") || !node.hasProperty("value")) continue;
+            const auto paramId = node.getProperty("id").toString();
+            if (auto* parameter = state.getParameter(paramId))
+            {
+                const float raw = (float)node.getProperty("value");
+                if (!std::isfinite(raw)) continue;
+                const float norm = parameter->convertTo0to1(raw);
+                if (!std::isfinite(norm)) continue;
+                juce::ValueTree safe {juce::Identifier("PARAM")};
+                safe.setProperty("id", paramId, nullptr);
+                safe.setProperty("value", parameter->convertFrom0to1(juce::jlimit(0.f, 1.f, norm)), nullptr);
+                snapshot.addChild(safe, -1, nullptr);
+            }
+        }
+        clean.addChild(snapshot, -1, nullptr);
+    }
     SkellyTrace::checkpoint("state: APVTS replace ENTER");
     state.replaceState(clean);
     SkellyTrace::checkpoint("state: RESTORE EXIT");
 }
-void SkellyEQAudioProcessor::storeSnapshot(int slot){auto snap=state.copyState();snap.setProperty("snapshotSlot",slot,nullptr);auto key=slot==0?"snapshotA":"snapshotB";state.state.removeChild(state.state.getChildWithName(key),nullptr);juce::ValueTree saved(key);for(int i=0;i<snap.getNumChildren();++i)saved.addChild(snap.getChild(i).createCopy(),-1,nullptr);state.state.addChild(saved,-1,nullptr);}
-void SkellyEQAudioProcessor::loadSnapshot(int slot){auto s=state.state.getChildWithName(slot==0?"snapshotA":"snapshotB");if(!s.isValid())return;for(int i=0;i<s.getNumChildren();++i){auto p=s.getChild(i);auto idName=p.getProperty("id").toString();if(auto* target=state.getParameter(idName)){auto val=(float)p.getProperty("value");target->setValueNotifyingHost(target->convertTo0to1(val));}}}
+void SkellyEQAudioProcessor::storeSnapshot(int slot)
+{
+    if (slot != 0 && slot != 1) return;
+    const juce::Identifier key(slot == 0 ? "snapshotA" : "snapshotB");
+    juce::ValueTree saved(key);
+    auto source = state.copyState();
+    // Only copy known PARAM children. Never nest an existing snapshot inside
+    // another snapshot (which previously inflated host save data each time).
+    for (int i = 0; i < source.getNumChildren(); ++i)
+        if (source.getChild(i).getType() == juce::Identifier("PARAM"))
+            saved.addChild(source.getChild(i).createCopy(), -1, nullptr);
+    if (auto old = state.state.getChildWithName(key); old.isValid())
+        state.state.removeChild(old, nullptr);
+    state.state.addChild(saved, -1, nullptr);
+}
+void SkellyEQAudioProcessor::loadSnapshot(int slot)
+{
+    if (slot != 0 && slot != 1) return;
+    const juce::Identifier key(slot == 0 ? "snapshotA" : "snapshotB");
+    auto stored = state.state.getChildWithName(key);
+    if (!stored.isValid()) return;
+    for (int i = 0; i < stored.getNumChildren(); ++i)
+    {
+        auto node = stored.getChild(i);
+        if (node.getType() != juce::Identifier("PARAM") || !node.hasProperty("value")) continue;
+        const auto paramId = node.getProperty("id").toString();
+        if (auto* target = state.getParameter(paramId))
+        {
+            const float value = (float)node.getProperty("value");
+            if (!std::isfinite(value)) continue;
+            const float normalized = target->convertTo0to1(value);
+            if (!std::isfinite(normalized)) continue;
+            target->beginChangeGesture();
+            target->setValueNotifyingHost(juce::jlimit(0.f, 1.f, normalized));
+            target->endChangeGesture();
+        }
+    }
+}
 juce::AudioProcessorEditor* SkellyEQAudioProcessor::createEditor()
 {
     SkellyTrace::checkpoint("editor: createEditor ENTER");
@@ -129,7 +191,7 @@ juce::AudioProcessorEditor* SkellyEQAudioProcessor::createEditor()
         {
             g.fillAll(juce::Colours::black);
             g.setColour(juce::Colours::lightgreen);
-            g.drawFittedText("SKELLY EQ v1.5 - MINIMAL DIAGNOSTIC",
+            g.drawFittedText("SKELLY EQ v1.7 - MINIMAL DIAGNOSTIC",
                              getLocalBounds(), juce::Justification::centred, 1);
         }
     };
