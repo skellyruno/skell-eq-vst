@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "StableEditor.h"
+#include "RestoredEditor.h"
 #include "CrashTrace.h"
 #include <cmath>
 using namespace SkellyDSP;
@@ -128,11 +129,13 @@ juce::AudioProcessorEditor* SkellyEQAudioProcessor::createEditor()
         {
             g.fillAll(juce::Colours::black);
             g.setColour(juce::Colours::lightgreen);
-            g.drawFittedText("SKELLY EQ v1.4 - MINIMAL DIAGNOSTIC",
+            g.drawFittedText("SKELLY EQ v1.5 - MINIMAL DIAGNOSTIC",
                              getLocalBounds(), juce::Justification::centred, 1);
         }
     };
     auto* editor = new MinimalEditor(*this);
+#elif SKELLY_RESTORED_EDITOR
+    auto* editor = new SkellyEQRestoredEditor(*this);
 #elif SKELLY_SAFE_EDITOR
     auto* editor = new SkellyEQStableEditor(*this);
 #else
