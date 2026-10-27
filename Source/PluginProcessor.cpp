@@ -27,23 +27,142 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyEQAudioProcessor::make
  return {p.begin(),p.end()};
 }
 std::array<BandConfig,8> SkellyEQAudioProcessor::bands() const {std::array<BandConfig,8> a;for(int i=0;i<8;++i){auto val=[&](const char* s){return state.getRawParameterValue(id(i,s))->load();};a[i]={val("enabled")>.5f,val("solo")>.5f,(int)val("type"),(int)val("channel"),val("freq"),val("gain"),val("q")};}return a;}
-void SkellyEQAudioProcessor::prepareToPlay(double sr,int){SkellyTrace::checkpoint("processor: prepareToPlay ENTER");for(auto& stage:filters)for(auto& channel:stage.filt)for(auto& filter:channel)filter.reset();lastSlope=-1;outputSmooth.reset(sr,.02);outputSmooth.setCurrentAndTargetValue(1);setLatencySamples(0);SkellyTrace::checkpoint("processor: prepareToPlay EXIT");}
-void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&){juce::ScopedNoDenormals noDenormals;auto n=audio.getNumSamples();if(n<=0)return;if(audio.getNumChannels()<2){audio.clear();return;}auto all=bands();int slope=1+(int)state.getRawParameterValue("slope")->load(),mode=(int)state.getRawParameterValue("stereoMode")->load();
- bool anySolo=false;for(auto& b:all)anySolo|=b.solo;
- // Coefficients update at block boundaries; states persist between blocks.
- for(int i=0;i<8;++i){const auto& band=all[i];if(previous[i].enabled!=band.enabled || previous[i].type!=band.type || previous[i].freq!=band.freq || previous[i].gain!=band.gain || previous[i].q!=band.q || slope!=lastSlope){int ty=internalType(band.type);int stages=(ty==3||ty==4)?slope:1;for(int channel=0;channel<2;++channel)for(int k=0;k<4;++k)filters[i].filt[channel][k].c=k<stages?design(ty,band.freq,band.gain,stages>1?cutoffQ(k,stages):band.q,sampleRateHz()):Coeff{};previous[i]=band;}}
- lastSlope=slope;lastMode=mode;
- float target=juce::Decibels::decibelsToGain(state.getRawParameterValue("outputGain")->load());outputSmooth.setTargetValue(target);
- int analysis=(int)state.getRawParameterValue("analyzeMode")->load();float peak[2]{0,0},sum[2]{0,0};auto* left=audio.getWritePointer(0);auto* right=audio.getWritePointer(1);
- for(int j=0;j<n;++j){double L=left[j],R=right[j];if(analysis==1)analyzer.push((float)((L+R)*.5));
- double v[2]{L,R};if(mode==1){v[0]=(L+R)*.7071067811865476;v[1]=(L-R)*.7071067811865476;}
- for(int i=0;i<8;++i){const auto& b=all[i];if(!b.enabled||(anySolo&&!b.solo))continue;int t=internalType(b.type),sections=(t==3||t==4)?slope:1;
- for(int ch=0;ch<2;++ch){bool route=mode==0?(b.channel==0||(b.channel==1&&ch==0)||(b.channel==2&&ch==1)):(b.channel==0||(b.channel==3&&ch==0)||(b.channel==4&&ch==1));if(!route)continue;for(int k=0;k<sections;++k)v[ch]=filters[i].filt[ch][k].tick(v[ch]);}}
- if(mode==1){L=(v[0]+v[1])*.7071067811865476;R=(v[0]-v[1])*.7071067811865476;}else {L=v[0];R=v[1];}
- double gain=outputSmooth.getNextValue();
- if(!std::isfinite(L)||!std::isfinite(R)){L=R=0.0;for(auto& band:filters)for(auto& channel:band.filt)for(auto& filter:channel)filter.reset();}
- left[j]=(float)juce::jlimit(-32.0,32.0,L*gain);right[j]=(float)juce::jlimit(-32.0,32.0,R*gain);peak[0]=juce::jmax(peak[0],std::abs(left[j]));peak[1]=juce::jmax(peak[1],std::abs(right[j]));sum[0]+=left[j]*left[j];sum[1]+=right[j]*right[j];if(analysis>=2)analyzer.push((left[j]+right[j])*.5f);}
- for(int ch=0;ch<2;++ch){peaks[ch].store(peak[ch]);rms[ch].store(std::sqrt(sum[ch]/juce::jmax(1,n)));}}
+void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
+{
+    SkellyTrace::checkpoint("processor: prepareToPlay ENTER");
+    for (auto& stage : filters)
+        for (auto& channel : stage.filt)
+            for (auto& filter : channel)
+            {
+                filter.reset();
+                filter.setCoefficients(Coeff{}, 0, true);
+            }
+    lastSlope = -1;
+    lastMode = -1;
+    const double safeRate = (std::isfinite(sr) && sr >= 8000.0) ? sr : 44100.0;
+    outputSmooth.reset(safeRate, 0.02);
+    outputSmooth.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
+        state.getRawParameterValue("outputGain")->load()));
+    peaks[0].store(0.f); peaks[1].store(0.f);
+    rms[0].store(0.f); rms[1].store(0.f);
+    setLatencySamples(0);
+    SkellyTrace::checkpoint("processor: prepareToPlay EXIT");
+}
+
+void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    const int n=audio.getNumSamples();
+    if(n<=0) return;
+    if(audio.getNumChannels()<2) { audio.clear(); return; }
+    for(int channel=2;channel<audio.getNumChannels();++channel)
+        audio.clear(channel,0,n);
+
+    const auto all=bands();
+    const int slope=1+(int)state.getRawParameterValue("slope")->load();
+    const int mode=(int)state.getRawParameterValue("stereoMode")->load();
+    const bool modeChanged=mode!=lastMode;
+    bool anySolo=false;
+    for(const auto& band:all) anySolo |= band.enabled && band.solo;
+
+    // A short coefficient ramp is independent of the DAW's buffer size.
+    // Topology/routing changes reset old filter memory before reconfiguration,
+    // preventing stale state bursts when a bypassed band is re-enabled.
+    const int rampSamples=juce::jmax(1,(int)std::round(sampleRateHz()*0.008));
+    for(int i=0;i<8;++i)
+    {
+        const auto& band=all[(size_t)i];
+        const auto& old=previous[(size_t)i];
+        const bool topology=modeChanged || band.type!=old.type ||
+            band.channel!=old.channel || band.enabled!=old.enabled || slope!=lastSlope;
+        const bool changed=topology || band.freq!=old.freq ||
+            band.gain!=old.gain || band.q!=old.q;
+        if(!changed) continue;
+        const int ty=internalType(band.type);
+        const int stages=(ty==3||ty==4)?slope:(ty==7?2:1);
+        for(int channel=0;channel<2;++channel)
+            for(int section=0;section<4;++section)
+            {
+                auto& filter=filters[i].filt[channel][section];
+                if(topology) filter.reset();
+                const Coeff next=section>=stages ? Coeff{}
+                    : ty==7 ? tiltSection(section,band.freq,band.gain,band.q,sampleRateHz())
+                    : design(ty,band.freq,band.gain,
+                             (ty==3||ty==4)&&stages>1 ? cutoffQ(section,stages) : band.q,
+                             sampleRateHz());
+                filter.setCoefficients(next, rampSamples, topology || lastSlope<0);
+            }
+        previous[(size_t)i]=band;
+    }
+    lastSlope=slope;
+    lastMode=mode;
+
+    const float target=juce::Decibels::decibelsToGain(
+        state.getRawParameterValue("outputGain")->load());
+    outputSmooth.setTargetValue(target);
+    const int analysis=(int)state.getRawParameterValue("analyzeMode")->load();
+    float peak[2]{0.f,0.f};
+    double sum[2]{0.0,0.0};
+    auto* left=audio.getWritePointer(0);
+    auto* right=audio.getWritePointer(1);
+
+    for(int j=0;j<n;++j)
+    {
+        double L=std::isfinite(left[j]) ? left[j] : 0.0;
+        double R=std::isfinite(right[j]) ? right[j] : 0.0;
+        if(analysis==1) analyzer.push((float)((L+R)*.5));
+        double v[2]{L,R};
+        if(mode==1)
+        {
+            v[0]=(L+R)*.7071067811865476;
+            v[1]=(L-R)*.7071067811865476;
+        }
+        for(int i=0;i<8;++i)
+        {
+            const auto& b=all[(size_t)i];
+            if(!b.enabled || (anySolo && !b.solo)) continue;
+            const int t=internalType(b.type);
+            const int sections=(t==3||t==4)?slope:(t==7?2:1);
+            for(int ch=0;ch<2;++ch)
+            {
+                const bool route=mode==0
+                    ? (b.channel==0 || (b.channel==1 && ch==0) || (b.channel==2 && ch==1))
+                    : (b.channel==0 || (b.channel==3 && ch==0) || (b.channel==4 && ch==1));
+                if(!route) continue;
+                for(int k=0;k<sections;++k)
+                    v[ch]=filters[i].filt[ch][k].tick(v[ch]);
+            }
+        }
+        if(mode==1)
+        {
+            L=(v[0]+v[1])*.7071067811865476;
+            R=(v[0]-v[1])*.7071067811865476;
+        }
+        else {L=v[0];R=v[1];}
+        const double gain=outputSmooth.getNextValue();
+        if(!std::isfinite(L) || !std::isfinite(R))
+        {
+            L=R=0.0;
+            for(auto& band:filters)
+                for(auto& channel:band.filt)
+                    for(auto& filter:channel) filter.reset();
+        }
+        // Last-resort host protection, not a creative limiter. Never expose
+        // NaN/Inf or out-of-range float data to FL Studio.
+        left[j]=(float)juce::jlimit(-32.0,32.0,L*gain);
+        right[j]=(float)juce::jlimit(-32.0,32.0,R*gain);
+        peak[0]=juce::jmax(peak[0],std::abs(left[j]));
+        peak[1]=juce::jmax(peak[1],std::abs(right[j]));
+        sum[0]+=(double)left[j]*left[j];
+        sum[1]+=(double)right[j]*right[j];
+        if(analysis>=2) analyzer.push((left[j]+right[j])*.5f);
+    }
+    for(int ch=0;ch<2;++ch)
+    {
+        peaks[ch].store(peak[ch],std::memory_order_relaxed);
+        rms[ch].store((float)std::sqrt(sum[ch]/(double)n),std::memory_order_relaxed);
+    }
+}
 void SkellyEQAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
     SkellyTrace::checkpoint("state: SAVE ENTER");
@@ -106,13 +225,19 @@ void SkellyEQAudioProcessor::setStateInformation(const void* data, int bytes)
     if (restored.hasProperty("selectedBand"))
         clean.setProperty("selectedBand", juce::jlimit(0, 7, (int) restored.getProperty("selectedBand")), nullptr);
 
-    // Retain the saved A/B curves across FL Studio project reloads, but do not
-    // import unknown nodes or out-of-range / NaN parameter values.
+    // Replace snapshot nodes rather than retaining snapshots from a previous
+    // FL Studio preset that does not contain any. Older presets stay valid.
+    for (const char* key : {"snapshotA", "snapshotB"})
+        if (auto prior = clean.getChildWithName(juce::Identifier(key)); prior.isValid())
+            clean.removeChild(prior, nullptr);
+    // Retain saved A/B curves across project reloads, validating all values.
     for (const char* key : {"snapshotA", "snapshotB"})
     {
         const auto incoming = restored.getChildWithName(juce::Identifier(key));
         if (!incoming.isValid()) continue;
         juce::ValueTree snapshot {juce::Identifier(key)};
+        if (auto previousSnapshot = clean.getChildWithName(juce::Identifier(key)); previousSnapshot.isValid())
+            clean.removeChild(previousSnapshot, nullptr);
         for (int i = 0; i < incoming.getNumChildren(); ++i)
         {
             auto node = incoming.getChild(i);

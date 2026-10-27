@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SkellyEQ VERSION 1.7.0 LANGUAGES C CXX)
+project(SkellyEQ VERSION 2.0.0 LANGUAGES C CXX)
 include(FetchContent)
 if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
   add_subdirectory("${JUCE_PATH}" JUCE)
@@ -34,7 +34,7 @@ target_link_libraries(SkellyEQ PRIVATE SkellyAssets juce::juce_audio_utils juce:
 
 # Staged V1.5 restoration is selected by default. The proven v1.4 safe editor
 # remains selectable for FL Studio crash isolation without touching processor DSP.
-option(SKELLY_RESTORED_EDITOR "V1.7 rebuilt, clean neon skull GUI" ON)
+option(SKELLY_RESTORED_EDITOR "V2.0 refined GUI; safe editor preserved" ON)
 option(SKELLY_SAFE_EDITOR "Use safe controls editor (recommended for FL Studio)" ON)
 option(SKELLY_DIAGNOSTIC_EDITOR "Use a completely minimal diagnostic window" OFF)
 option(SKELLY_TRACE_LIFECYCLE "Log plugin load, state and editor lifecycle checkpoints" OFF)
@@ -44,3 +44,14 @@ target_compile_definitions(SkellyEQ PRIVATE
   SKELLY_DIAGNOSTIC_EDITOR=$<BOOL:${SKELLY_DIAGNOSTIC_EDITOR}>
   SKELLY_TRACE_LIFECYCLE=$<BOOL:${SKELLY_TRACE_LIFECYCLE}>)
 message(STATUS "Skelly EQ ${PROJECT_VERSION}: restored editor=${SKELLY_RESTORED_EDITOR}, safe editor=${SKELLY_SAFE_EDITOR}, minimal editor=${SKELLY_DIAGNOSTIC_EDITOR}, trace=${SKELLY_TRACE_LIFECYCLE}")
+
+# Platform-independent filter tests compile the actual DSP header against a
+# deliberately small JUCE-math shim; no audio device or DAW is required.
+option(SKELLY_BUILD_DSP_TESTS "Build portable DSP smoke tests" ON)
+if(SKELLY_BUILD_DSP_TESTS)
+  enable_testing()
+  add_executable(SkellyDspSmoke tests/dsp_smoke.cpp)
+  target_compile_features(SkellyDspSmoke PRIVATE cxx_std_17)
+  target_include_directories(SkellyDspSmoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests/juce_stub")
+  add_test(NAME SkellyDspSmoke COMMAND SkellyDspSmoke)
+endif()

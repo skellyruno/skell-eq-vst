@@ -19,24 +19,68 @@ inline Coeff design(int type,double freq,double gain,double q,double sr) {
     case 4: b0=(1+c)/2;b1=-(1+c);b2=(1+c)/2;a0=1+alpha;a1=-2*c;a2=1-alpha;break; // high-pass for low-cut
     case 5: b0=1;b1=-2*c;b2=1;a0=1+alpha;a1=-2*c;a2=1-alpha;break;
     case 6: b0=alpha;b1=0;b2=-alpha;a0=1+alpha;a1=-2*c;a2=1-alpha;break;
-    default: return design(gain>=0?2:1,freq,gain*.5,q,sr);
+    // Tilt uses two complementary shelf stages; see tiltSection() below.
+    default: return {};
   }
   return {b0/a0,b1/a0,b2/a0,a1/a0,a2/a0};
 }
-class Biquad { public: Coeff c; double z1=0,z2=0;
+// A fixed-memory TDF-II biquad. Coefficients are slewed on the audio thread,
+// not stepped at the host's arbitrary process-block boundaries. Both the
+// current and target denominator poles are inside the stability triangle for
+// supported RBJ designs; linear interpolation preserves the triangle.
+class Biquad {
+public:
+ Coeff c;
+ double z1=0, z2=0;
+ void setCoefficients(const Coeff& next, int rampSamples, bool immediate=false) noexcept {
+   if (immediate || rampSamples <= 0) {
+     c=next; target=next; delta={0,0,0,0,0}; remaining=0;
+     return;
+   }
+   target=next;
+   remaining=rampSamples;
+   const double inverse=1.0/static_cast<double>(rampSamples);
+   delta={(target.b0-c.b0)*inverse, (target.b1-c.b1)*inverse,
+          (target.b2-c.b2)*inverse, (target.a1-c.a1)*inverse,
+          (target.a2-c.a2)*inverse};
+ }
  double tick(double x) noexcept {
+  if (remaining > 0) {
+    c.b0+=delta.b0; c.b1+=delta.b1; c.b2+=delta.b2;
+    c.a1+=delta.a1; c.a2+=delta.a2;
+    if (--remaining == 0) c=target;
+  }
   if (!std::isfinite(x)) { reset(); return 0.0; }
   const auto y=c.b0*x+z1;
   if (!std::isfinite(y) || std::abs(y)>1.0e8) { reset(); return 0.0; }
   const auto nextZ1=c.b1*x-c.a1*y+z2;
   const auto nextZ2=c.b2*x-c.a2*y;
   if (!std::isfinite(nextZ1) || !std::isfinite(nextZ2)) { reset(); return 0.0; }
-  z1=nextZ1;z2=nextZ2;return y;
+  z1=nextZ1; z2=nextZ2; return y;
  }
  void reset() noexcept {z1=z2=0;}
+private:
+ Coeff target, delta{0,0,0,0,0};
+ int remaining=0;
 };
 struct BandConfig {bool enabled=true,solo=false;int type=0,channel=0;double freq=1000,gain=0,q=1;};
 inline int internalType(int uiType) { return uiType==3?4:uiType==4?3:uiType; }
 inline double cutoffQ(int index,int total) { const double theta=juce::MathConstants<double>::pi*(2*index+1)/(4*total);return 1.0/(2*std::cos(theta)); }
-inline std::complex<double> bandResponse(const BandConfig& b,double f,double sr,int slope){if(!b.enabled)return {1,0};int t=internalType(b.type);int sections=(t==3||t==4)?slope:1;std::complex<double> r{1,0};for(int i=0;i<sections;++i)r*=design(t,b.freq,b.gain,(sections>1?cutoffQ(i,sections):b.q),sr).response(juce::MathConstants<double>::twoPi*f/sr);return r;}
+inline Coeff tiltSection(int section, double freq, double gain, double q, double sr) {
+    // At positive gain the low shelf cuts and the high shelf boosts.
+    // Each side approaches +/-gain dB relative to the 0 dB pivot.
+    return section == 0 ? design(1,freq,-gain,q,sr)
+                        : design(2,freq, gain,q,sr);
+}
+inline std::complex<double> bandResponse(const BandConfig& b,double f,double sr,int slope){
+ if(!b.enabled)return {1,0};
+ const int t=internalType(b.type);
+ const int sections=(t==3||t==4)?slope:(t==7?2:1);
+ std::complex<double> r{1,0};
+ const double w=juce::MathConstants<double>::twoPi*f/sr;
+ for(int i=0;i<sections;++i)
+     r *= (t==7 ? tiltSection(i,b.freq,b.gain,b.q,sr)
+                : design(t,b.freq,b.gain,sections>1?cutoffQ(i,sections):b.q,sr)).response(w);
+ return r;
+}
 }

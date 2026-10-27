@@ -3,8 +3,8 @@
 #include "PluginProcessor.h"
 #include <memory>
 
-// V1.5 staged visual restoration: no FFT, background worker, async PopupMenu,
-// or borrowed raw pointers. The V1.4 stable editor remains a build option.
+// V2.0 editor: custom JUCE-painted widgets, message-thread FFT, and safe teardown.
+// The working V1.4 fallback editor remains a build option.
 class SkellyEQRestoredEditor final : public juce::AudioProcessorEditor,
                                      private juce::Timer
 {
@@ -19,6 +19,13 @@ private:
     {
     public:
         NeonLook();
+        void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&, bool, bool) override;
+        void drawButtonText(juce::Graphics&, juce::TextButton&, bool, bool) override;
+        void drawComboBox(juce::Graphics&, int, int, bool, int, int, int, int, juce::ComboBox&) override;
+        juce::Font getComboBoxFont(juce::ComboBox&) override;
+        void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool, bool) override;
+        void drawLinearSlider(juce::Graphics&, int, int, int, int, float, float, float,
+                              juce::Slider::SliderStyle, juce::Slider&) override;
         void drawRotarySlider(juce::Graphics&, int, int, int, int, float,
                               float, float, juce::Slider&) override;
     } look;
@@ -42,6 +49,7 @@ private:
         juce::Image graphTexture;
         std::array<float, 256> spectrumDb{};
         bool hasSpectrum = false;
+        float spectrumOpacity = 1.0f;
 
     private:
         juce::RangedAudioParameter* param(int, const char*) const;
@@ -81,6 +89,8 @@ private:
     juce::dsp::FFT fft{12};
     std::array<float, 4096> fftInput{};
     std::array<float, 8192> fftWork{};
+    std::array<float, 4096> hannWindow{};
+    std::array<float, 256> spectrumScratch{};
     int fftFill = 0;
     juce::ComboBox bandSelect, typeSelect, phaseSelect, slopeSelect, modeSelect, analyzeSelect, channelSelect;
     juce::ToggleButton enabled {"ACTIVE"}, solo {"SOLO"};
@@ -88,6 +98,7 @@ private:
     juce::TextButton options {"RANGE"}, about {"SKELLY EQ"}, previous {"<"}, next {">"}, resetCurve {"RESET CURVE"};
     juce::TextButton saveA {"SAVE A"}, loadA {"LOAD A"}, saveB {"SAVE B"}, loadB {"LOAD B"};
     juce::TextButton typeButtons[5];
+    juce::TextButton bandTabs[8];
     juce::Label buildTag;
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
@@ -96,5 +107,6 @@ private:
     std::unique_ptr<ComboAttachment> typeAttachment, phaseAttachment, slopeAttachment, modeAttachment, analyzeAttachment, channelAttachment;
     std::unique_ptr<ButtonAttachment> enabledAttachment, soloAttachment;
     float meterPeak[2]{}, meterRms[2]{};
+    int clipHoldTicks[2]{};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyEQRestoredEditor)
 };

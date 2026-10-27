@@ -1,50 +1,63 @@
-# Skelly EQ 1.7.0 — Rebuilt GUI / FL Studio test build
+# Skelly EQ V2.0 — DSP and GUI refinement (2026-10-27)
 
-An eight-band, stereo VST3 + Standalone parametric EQ built with JUCE 8 and CMake. The default editor is a neon-green industrial skin with a separate skull emblem and **real JUCE controls**. It no longer uses a complete screenshot as the UI background, so control labels, grid ticks, and button text cannot be drawn twice.
+**Build status:** Portable DSP smoke tests pass with g++ on Linux. A full JUCE build, MSVC compilation, VST3 validation, and FL Studio runtime testing are **not available in this environment**. Treat V2.0 as a source test release. V1.4's simple editor remains the fallback build.
 
-## Changes since v1.6
+## Changes from 1.9
 
-- Replaced the screenshot skin with a clean frame and a separate newly created skull emblem.
-- Corrected the frequency graph, scale labels, sidebar, band controls, status header and bottom strip layout.
-- Restored a 4096-point Hann-windowed spectrum analyzer. Only sample collection occurs on the audio thread; FFT calculation occurs in the editor's timer (24 Hz). OFF, PRE, POST, and ON modes. (ON currently uses post-EQ data.)
-- Improved band-handle visibility (numbers on active handles; amber outline for selected, dim ring for bypassed), mouse-wheel Q and host automation gestures for drags.
-- Added active-band SOLO, per-band channel assignment, selected-filter indication, and basic SAVE/LOAD A and B snapshot buttons.
-- Corrected snapshot storage to avoid nested copies and restored validation/persistence for saved snapshots.
-- Kept v1.4 processor algorithms, parameter IDs, state parsing rules, and fallback editor for compatibility with FL Studio projects.
-- Lifecycle file tracing is **OFF by default** for normal builds; can be enabled explicitly to troubleshoot.
+- **Continuous biquad coefficient ramps:** frequency/gain/Q automation ramps filter coefficients over approximately 8 ms, independently of DAW block size; changing routing, type, slope, or enable state clears stale filter memory. No allocations or FFT work added to the real-time filter loop.
+- **Fixed a Solo edge case:** bypassed bands marked Solo no longer mute other bands.
+- **True Tilt response:** the existing Tilt type now uses a complementary low-shelf / high-shelf pair (one boosts and the other cuts); the response graph and processing use the same coefficients.
+- **Improved spectrum:** precomputed 4096-point Hann window; 75% overlap; display-side log-bin smoothing and separate attack/release; FFT capped at five processed frames per timer callback to protect host UI responsiveness; analyzer AMOUNT changes display opacity, not dB readings.
+- **Live UI polish:** selected bands remain reachable at ±6 dB graph range, brighter numbered EQ handles, peak clip LEDs, clearer header, and updated version identification.
+- **Preset correctness:** A/B snapshot restoration discards stale prior snapshots before importing validated snapshots; all existing parameter IDs and plugin identifiers remain unchanged for DAW compatibility.
+- **Automated regression tests:** `SkellyDspSmoke` compiles the production biquad header with a minimal JUCE-math shim and checks unity response, filter cutoff behavior, coefficient-ramp stability, near-Nyquist stability, and Tilt response. GitHub Actions now runs `ctest` on Windows and macOS.
 
-## Important limitations
+### Important, still unfinished
 
-This is an **unverified source release**, not a tested Windows binary. A successful ZIP checksum/static source review is not a substitute for an MSVC compile and real FL Studio testing. `phaseMode` offers three preset values for backward compatibility, but the DSP is *currently minimum phase in all modes*. **True linear-phase convolution is not implemented**, and the 'LINEAR (N/A)' UI label makes this limitation explicit. The shown combined response is a single nominal aggregate curve, not a channel-specific L/R or M/S split plot. Biquad coefficients update at block boundaries, so aggressive automation may create zipper noise. No performance comparison to FabFilter Pro-Q has been completed.
+- **True linear-phase processing is not implemented.** The `phaseMode` parameter is retained so existing project states load, but all three values currently execute the minimum-phase processing path. The UI identifies the Linear setting as unavailable; do not use it for mastering when linear phase is required.
+- The two other phase labels also share one DSP path: there is no lookahead and reported latency is zero samples. This is not a different zero-phase filter.
+- Analyzer display is mono-summed for visualization; it does not provide separate L/R, Mid, or Side spectrums.
+- Coefficient slewing reduces parameter zipper noise but abrupt filter-type, slope, and channel changes are not yet dual-path crossfaded and may still click on challenging content.
+- The built-in last-resort ±32 safety clamp is **not** a proper limiter. Use safe input and output levels.
+- JUCE/FL Studio must be tested after building: scan/load, editor open-close 10×, bypass/solo, save/reopen, playback, automation, and CPU load at 44.1/48/96 kHz and small audio buffers.
 
-## Windows — Visual Studio 2026 + GitHub Actions
+### Portable DSP tests
 
-Push the **contents of this `SkellyEQ/` folder** into the repository root, including `.github/workflows/build.yml` and `Assets/`. On each push to `main`, GitHub Actions builds Windows VST3 and macOS VST3 artifacts (JUCE fetched from GitHub). Follow Actions -> latest **Build Skelly EQ** -> Windows artifact.
+On Linux or macOS with a C++17 compiler (these tests do not need JUCE):
 
-Local build (JUCE 8.0.12 or compatible path):
+```sh
+c++ -std=c++17 -O2 -I tests/juce_stub tests/dsp_smoke.cpp -o skelly_dsp_smoke
+./skelly_dsp_smoke
+```
+
+Or use `cmake --build build --config Release` and `ctest --test-dir build -C Release --output-on-failure` after configuring the JUCE project.
+
+### Editor fallbacks
+
+The default is the restored interface. For crash diagnosis, pass `-DSKELLY_RESTORED_EDITOR=OFF -DSKELLY_SAFE_EDITOR=ON`. For a minimal diagnostic window, pass `-DSKELLY_DIAGNOSTIC_EDITOR=ON`. Do not overwrite the last known good V1.4 install until V2.0 has passed FL Studio testing.
+
+---
+
+## Build the VST3
+
+For a Windows MSVC machine with JUCE 8.0.12 downloaded to `C:/JUCE`:
 
 ```powershell
-cmake -S . -B build -A x64 -DJUCE_PATH="C:/your/checkout/JUCE" -DSKELLY_RESTORED_EDITOR=ON
+cmake -S . -B build -A x64 -DJUCE_PATH="C:/JUCE"
 cmake --build build --config Release --parallel 2
+ctest --test-dir build -C Release --output-on-failure
 ```
 
-Typical Windows VST3 location: `build/SkellyEQ_artefacts/Release/VST3/Skelly EQ.vst3` (exact path may vary). After replacing a VST3, restart FL Studio and run the plugin manager rescan to avoid testing a cached older binary.
+For macOS with Xcode:
 
-Safe-editor fallback if the rebuilt editor fails:
-
-```powershell
-cmake -S . -B build-safe -A x64 -DJUCE_PATH="C:/your/checkout/JUCE" -DSKELLY_RESTORED_EDITOR=OFF -DSKELLY_SAFE_EDITOR=ON
-cmake --build build-safe --config Release --parallel 2
+```sh
+cmake -S . -B build -G Xcode -DJUCE_PATH=/path/to/JUCE
+cmake --build build --config Release --parallel 2
+ctest --test-dir build -C Release --output-on-failure
 ```
 
-Diagnostic log option (do **not** enable by default): `-DSKELLY_TRACE_LIFECYCLE=ON`. Writes checkpoints to `%APPDATA%/SkellyAudio/SkellyEQ-v1.7-trace.txt`.
+If `JUCE_PATH` is not provided, CMake FetchContent attempts to download the pinned JUCE 8.0.12 release. Windows artifacts normally appear under `build/SkellyEQ_artefacts/Release/VST3` and `build/SkellyEQ_artefacts/Release/Standalone`. Exact folders may vary with JUCE and platform.
 
-## Controls
+The VST3 manufacturer/plugin IDs and the complete automatable parameter layout are preserved from V1.9 to avoid breaking existing DAW sessions. The plugin's state retains the selected band and A/B snapshots. All other features and historical notes are documented in `HISTORY_V1_X.md`.
 
-Drag one of the eight band handles to change frequency and gain. Shift-drag is fine adjust; Control constrains to the primary direction; Alt-drag changes Q; scroll-wheel over a handle changes Q. Double-click a handle to bypass/enable its band. Double-click empty graph space to turn on and place an unused band. The selected band has editable FREQ, GAIN, Q, FILTER, CHANNEL, ACTIVE, and SOLO controls.
-
-Use SAVE A/B to record a snapshot and LOAD A/B to recall. RESET CURVE overwrites all eight bands with an example preset; it never activates on load automatically. Analyzer modes are in the right pane.
-
-## FL Studio release checklist
-
-Read `V170_FL_STUDIO_TEST.md` before using in an existing project. Test plugin scan -> add to blank project -> open/close 10× -> play audio -> edit nodes -> project save/reopen -> A/B persistence -> close and remove plugin. Compare with the v1.4 fallback if instability returns.
+Read `V200_RELEASE_NOTES.md` before using this source in an important FL Studio session.
