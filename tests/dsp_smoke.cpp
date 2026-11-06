@@ -20,6 +20,20 @@ int main() {
     for(int slope=1;slope<=4;++slope)
         for(int k=0;k<slope;++k)
             assert(std::isfinite(cutoffQ(k,slope)) && cutoffQ(k,slope)>0.0);
+    // Lane routing shared by the DSP and the visual response; verify each mode.
+    for (int mode = 0; mode < 2; ++mode)
+        for (int assign = 0; assign < 5; ++assign)
+        {
+            BandConfig routed;
+            routed.channel = assign;
+            for (int lane = 0; lane < 2; ++lane)
+            {
+                const bool expected = mode == 0
+                    ? (assign == 0 || (assign == 1 && lane == 0) || (assign == 2 && lane == 1))
+                    : (assign == 0 || (assign == 3 && lane == 0) || (assign == 4 && lane == 1));
+                assert(routesToLane(routed, mode, lane) == expected);
+            }
+        }
     Biquad filter;
     filter.setCoefficients(design(0,800.0,9.0,2.0,sr),0,true);
     double sum=0;

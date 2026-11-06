@@ -9,8 +9,11 @@
 
 namespace
 {
-constexpr float baseW = 1784.0f;
-constexpr float baseH = 882.0f;
+// Native compact layout: 60% of the original 1784x882 artwork footprint.
+// Paint uses these readable compact-design coordinates instead of shrinking
+// the 1784px text and controls to illegible sizes.
+constexpr float baseW = 1070.0f;
+constexpr float baseH = 529.0f;
 const juce::Colour green(0xff39ff3a), bright(0xff98ff8c), dark(0xff061008);
 
 // Load by named-resource lookup: avoids platform dependent BinaryData identifiers.
@@ -53,7 +56,7 @@ void separator(juce::Graphics& g, float x1, float x2, float y)
 void configureDial(juce::Slider& s)
 {
     s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 114, 24);
+    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 92, 19);
     s.setDoubleClickReturnValue(true, 0.0);
     s.setColour(juce::Slider::textBoxTextColourId, bright);
     s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff071109));
@@ -137,11 +140,11 @@ void SkellyEQRestoredEditor::NeonLook::drawButtonBackground(juce::Graphics& g, j
     const auto base = juce::Colour(active ? 0xff1a5b24 : 0xff09180d);
     g.setGradientFill(juce::ColourGradient(base.brighter(hover ? .23f : .10f), 0.f, 0.f,
                          base.darker(down ? .24f : .05f), 0.f, bounds.getBottom(), false));
-    g.fillRoundedRectangle(bounds, 6.f);
+    g.fillRoundedRectangle(bounds, 4.f);
     const auto stroke = active ? juce::Colour(0xff75ff86)
                                : juce::Colour(hover ? 0xff45d954 : 0xff2b6236);
     g.setColour(stroke.withAlpha(button.isEnabled() ? .90f : .35f));
-    g.drawRoundedRectangle(bounds, 6.f, active ? 1.6f : 1.f);
+    g.drawRoundedRectangle(bounds, 4.f, active ? 1.6f : 1.f);
     if (active)
     {
         g.setColour(juce::Colour(0xff7cff82).withAlpha(.15f));
@@ -153,7 +156,7 @@ void SkellyEQRestoredEditor::NeonLook::drawButtonText(juce::Graphics& g, juce::T
     bool, bool)
 {
     const auto r = button.getLocalBounds().reduced(3, 1);
-    const float size = juce::jlimit(9.f, 14.f, button.getHeight() * .39f);
+    const float size = juce::jlimit(10.f, 12.5f, button.getHeight() * .52f);
     g.setFont(juce::Font(juce::FontOptions(size).withStyle("Bold")));
     g.setColour(juce::Colour(button.isEnabled()
         ? (button.getToggleState() ? 0xfff1fff3 : 0xffbceac7)
@@ -182,8 +185,8 @@ void SkellyEQRestoredEditor::NeonLook::drawComboBox(juce::Graphics& g, int width
 
 juce::Font SkellyEQRestoredEditor::NeonLook::getComboBoxFont(juce::ComboBox& box)
 {
-    return juce::Font(juce::FontOptions(juce::jlimit(9.f, 13.5f,
-                                                 box.getHeight() * .62f)).withStyle("Bold"));
+    return juce::Font(juce::FontOptions(juce::jlimit(10.f, 12.0f,
+                                                 box.getHeight() * .54f)).withStyle("Bold"));
 }
 
 void SkellyEQRestoredEditor::NeonLook::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
@@ -320,18 +323,30 @@ float SkellyEQRestoredEditor::ResponseGraph::gainForY(float y) const
 int SkellyEQRestoredEditor::ResponseGraph::findBand(juce::Point<float> position) const
 {
     const auto bands = processor.bands();
-    // Bypassed bands must still be selectable, so a saved FL Studio preset
-    // with all eight bands off cannot leave an uneditable empty graph.
-    for (int b = 7; b >= 0; --b)
-        if (position.getDistanceFrom(
-               {xForFrequency((float)bands[(size_t)b].freq),
-                juce::jlimit(9.f,(float)getHeight()-9.f,yForGain((float)bands[(size_t)b].gain))}) < 18.0f)
-            return b;
-    return -1;
+    // Overlapping nodes: prefer the selected node, otherwise choose the nearest.
+    // This also keeps bypassed nodes reachable after loading old FL projects.
+    int closest = -1;
+    float bestDistance = 19.f;
+    for (int b = 0; b < 8; ++b)
+    {
+        const auto& band = bands[(size_t)b];
+        const auto target = juce::Point<float>(
+            xForFrequency((float)band.freq),
+            juce::jlimit(9.f, (float)getHeight() - 9.f, yForGain((float)band.gain)));
+        const float distance = position.getDistanceFrom(target);
+        if (b == selected && distance <= 15.f) return b;
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            closest = b;
+        }
+    }
+    return closest;
 }
 void SkellyEQRestoredEditor::ResponseGraph::beginDragParam(juce::RangedAudioParameter* p)
 {
-    endDragParam();
+    if (gestureParam == p) return;
+    if (gestureParam != nullptr) gestureParam->endChangeGesture();
     gestureParam = p;
     if (gestureParam != nullptr) gestureParam->beginChangeGesture();
 }
@@ -385,7 +400,7 @@ void SkellyEQRestoredEditor::ResponseGraph::paint(juce::Graphics& g)
         juce::Path spectrumPath;
         for (int k = 0; k < (int)spectrumDb.size(); ++k)
         {
-            const float x = w * (float)k / (float)(spectrumDb.size() - 1);
+            const float x = xForFrequency(20.f * std::pow(1000.f, (float)k / 255.f));
             // -90..0 dB spectrum mapped to lower 88% of the graph.
             const float normalized = juce::jlimit(0.f, 1.f, (spectrumDb[(size_t)k] + 90.f) / 90.f);
             const float y = h * (0.94f - normalized * 0.82f);
@@ -404,7 +419,9 @@ void SkellyEQRestoredEditor::ResponseGraph::paint(juce::Graphics& g)
     }
     const auto bands = processor.bands();
     const int slope = 1 + (int)processor.state.getRawParameterValue("slope")->load();
+    const int stereoMode = (int)processor.state.getRawParameterValue("stereoMode")->load();
     bool curveChanged = !curveValid || cachedSlope != slope || cachedRange != range
+                        || cachedMode != stereoMode
                         || cachedWidth != getWidth() || cachedHeight != getHeight()
                         || cachedRate != processor.sampleRateHz();
     if (!curveChanged)
@@ -419,21 +436,49 @@ void SkellyEQRestoredEditor::ResponseGraph::paint(juce::Graphics& g)
     if (curveChanged)
     {
         cachedResponse.clear();
+        cachedLaneA.clear();
+        cachedLaneB.clear();
+        lanesDiffer = false;
+        bool anySolo = false;
+        for (const auto& band : bands) anySolo |= band.enabled && band.solo;
+        const double sr = juce::jmax(8000.0, processor.sampleRateHz());
+        const double limit = juce::jmin(20000.0, sr * 0.495);
         for (int i = 0; i < 550; ++i)
         {
             const float x = w * (float)i / 549.f;
-            const double frequency = frequencyForX(x);
-            std::complex<double> combined {1.0, 0.0};
+            const double frequency = juce::jmin((double)frequencyForX(x), limit);
+            std::complex<double> lane[2] {{1.0, 0.0}, {1.0, 0.0}};
             for (const auto& band : bands)
-                combined *= SkellyDSP::bandResponse(band, frequency, processor.sampleRateHz(), slope);
-            const float db = (float)juce::Decibels::gainToDecibels(std::abs(combined), -100.0);
-            const float y = juce::jlimit(-2.f * h, 3.f * h, yForGain(db));
-            if (i == 0) cachedResponse.startNewSubPath(x, y);
-            else cachedResponse.lineTo(x, y);
+            {
+                if (!band.enabled || (anySolo && !band.solo)) continue;
+                const auto response = SkellyDSP::bandResponse(band, frequency, sr, slope);
+                for (int ch = 0; ch < 2; ++ch)
+                    if (SkellyDSP::routesToLane(band, stereoMode, ch))
+                        lane[ch] *= response;
+            }
+            const float dbA = (float)juce::Decibels::gainToDecibels(std::abs(lane[0]), -100.0);
+            const float dbB = (float)juce::Decibels::gainToDecibels(std::abs(lane[1]), -100.0);
+            const float yA = juce::jlimit(-2.f * h, 3.f * h, yForGain(dbA));
+            const float yB = juce::jlimit(-2.f * h, 3.f * h, yForGain(dbB));
+            const float yMean = juce::jlimit(-2.f * h, 3.f * h, yForGain((dbA + dbB) * .5f));
+            if (std::abs(dbA - dbB) > .25f) lanesDiffer = true;
+            if (i == 0)
+            {
+                cachedResponse.startNewSubPath(x, yMean);
+                cachedLaneA.startNewSubPath(x, yA);
+                cachedLaneB.startNewSubPath(x, yB);
+            }
+            else
+            {
+                cachedResponse.lineTo(x, yMean);
+                cachedLaneA.lineTo(x, yA);
+                cachedLaneB.lineTo(x, yB);
+            }
         }
         cachedBands = bands;
         cachedSlope = slope;
         cachedRange = range;
+        cachedMode = stereoMode;
         cachedWidth = getWidth();
         cachedHeight = getHeight();
         cachedRate = processor.sampleRateHz();
@@ -458,12 +503,43 @@ void SkellyEQRestoredEditor::ResponseGraph::paint(juce::Graphics& g)
         g.setColour(green.withAlpha(.13f));
         g.drawVerticalLine((int)nodeX, 0.f, h);
     }
-    g.setColour(green.withAlpha(.13f));
-    g.strokePath(cachedResponse, juce::PathStrokeType(10.f));
-    g.setColour(bright.withAlpha(.4f));
-    g.strokePath(cachedResponse, juce::PathStrokeType(5.f));
+    // Two discrete lane responses appear only when routing actually differs.
+    // The luminous centre line is the dB-mean (L/R, or M/S in mid-side mode).
+    if (lanesDiffer)
+    {
+        g.setColour(juce::Colour(0xffffc976).withAlpha(.64f));
+        g.strokePath(cachedLaneA, juce::PathStrokeType(1.15f));
+        g.setColour(juce::Colour(0xff69dce3).withAlpha(.64f));
+        g.strokePath(cachedLaneB, juce::PathStrokeType(1.15f));
+    }
+    g.setColour(green.withAlpha(.12f));
+    g.strokePath(cachedResponse, juce::PathStrokeType(8.f));
+    g.setColour(bright.withAlpha(.38f));
+    g.strokePath(cachedResponse, juce::PathStrokeType(4.f));
     g.setColour(green);
-    g.strokePath(cachedResponse, juce::PathStrokeType(2.6f));
+    g.strokePath(cachedResponse, juce::PathStrokeType(2.2f));
+    if (lanesDiffer)
+    {
+        g.setFont(juce::Font(juce::FontOptions(10.f).withStyle("Bold")));
+        g.setColour(juce::Colour(0xffffc976));
+        g.drawText(stereoMode == 0 ? "L" : "M", 8, 5, 13, 15, juce::Justification::centred);
+        g.setColour(juce::Colour(0xff69dce3));
+        g.drawText(stereoMode == 0 ? "R" : "S", 24, 5, 13, 15, juce::Justification::centred);
+    }
+    // The frequency axis stays 20 Hz..20 kHz. Mark unavailable frequencies
+    // at low sample rates instead of displaying aliased curves as real DSP.
+    const double nyquist = processor.sampleRateHz() * .5;
+    if (nyquist < 20000.0)
+    {
+        const float x = xForFrequency((float)juce::jmax(20.0, nyquist));
+        g.setColour(juce::Colour(0xff020805).withAlpha(.82f));
+        g.fillRect(juce::Rectangle<float>(x, 0.f, w - x, h));
+        g.setColour(juce::Colour(0xffffc976).withAlpha(.65f));
+        g.drawVerticalLine((int)x, 0.f, h);
+        g.setFont(juce::Font(juce::FontOptions(10.f)));
+        g.drawFittedText("NYQUIST", juce::Rectangle<float>(x + 4.f, 6.f, w - x - 7.f, 15.f).toNearestInt(),
+                         juce::Justification::centred, 1);
+    }
     bool anyEnabled = false;
     for (int pass = 0; pass < 2; ++pass)
     for (int b = 0; b < 8; ++b)
@@ -493,10 +569,10 @@ void SkellyEQRestoredEditor::ResponseGraph::paint(juce::Graphics& g)
         }
         // Numbered handles make overlapping or bypassed bands easy to distinguish.
         // Draw active band numbers only at useful visual sizes.
-        if (getWidth() >= 900 && band.enabled)
+        if (getWidth() >= 540 && band.enabled)
         {
             g.setColour(juce::Colour(0xffe5ffe7));
-            g.setFont(juce::Font(juce::FontOptions(12.f).withStyle("Bold")));
+            g.setFont(juce::Font(juce::FontOptions(10.f).withStyle("Bold")));
             g.drawText(juce::String(b + 1), juce::Rectangle<int>((int)x - 8, (int)y - 9, 16, 18),
                        juce::Justification::centred, false);
         }
@@ -540,12 +616,23 @@ void SkellyEQRestoredEditor::ResponseGraph::mouseDrag(const juce::MouseEvent& e)
     const float fine = e.mods.isShiftDown() ? .15f : 1.f;
     if (e.mods.isAltDown())
     {
-        if (gestureParam != param(dragged, "q")) beginDragParam(param(dragged, "q"));
+        // Switching to Q closes the gain gesture once, not on every mouse event.
+        if (gainGestureParam != nullptr)
+        {
+            gainGestureParam->endChangeGesture();
+            gainGestureParam = nullptr;
+        }
+        beginDragParam(param(dragged, "q"));
         setParam(dragged, "q", juce::jlimit(.1f, 18.f, originalQ * std::exp(-delta.y * fine * .012f)));
     }
     else
     {
-        if (gestureParam != param(dragged, "freq")) beginDragParam(param(dragged, "freq"));
+        beginDragParam(param(dragged, "freq"));
+        if (gainGestureParam == nullptr)
+        {
+            gainGestureParam = param(dragged, "gain");
+            if (gainGestureParam != nullptr) gainGestureParam->beginChangeGesture();
+        }
         if (!e.mods.isCtrlDown() || std::abs(delta.x) >= std::abs(delta.y))
             setParam(dragged, "freq", frequencyForX(xForFrequency(originalFrequency) + delta.x * fine));
         if (!e.mods.isCtrlDown() || std::abs(delta.y) > std::abs(delta.x))
@@ -595,10 +682,17 @@ void SkellyEQRestoredEditor::ResponseGraph::mouseWheelMove(const juce::MouseEven
 void SkellyEQRestoredEditor::ResponseGraph::mouseMove(const juce::MouseEvent& e)
 {
     int band = findBand(e.position);
+    setMouseCursor(band >= 0 ? juce::MouseCursor::PointingHandCursor
+                             : juce::MouseCursor::CrosshairCursor);
     if (band < 0) { setTooltip({}); return; }
     const auto cfg = processor.bands()[(size_t)band];
-    setTooltip(juce::String(cfg.freq, 1) + " Hz / " + juce::String(cfg.gain, 1)
-               + " dB / Q " + juce::String(cfg.q, 2));
+    const juce::String frequency = cfg.freq >= 1000.0
+        ? juce::String(cfg.freq / 1000.0, 2) + " kHz"
+        : juce::String(cfg.freq, 1) + " Hz";
+    setTooltip("Band " + juce::String(band + 1) + "  |  " + frequency
+               + "  |  " + juce::String(cfg.gain, 1) + " dB  |  Q "
+               + juce::String(cfg.q, 2)
+               + (cfg.enabled ? "" : "  |  BYPASSED"));
 }
 
 SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
@@ -645,7 +739,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     output.setDoubleClickReturnValue(true, 0.0);
     analyzeAmount.setDoubleClickReturnValue(true, 100.0);
     analyzeAmount.setSliderStyle(juce::Slider::LinearHorizontal);
-    analyzeAmount.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 22);
+    analyzeAmount.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 19);
     enabled.setButtonText("ON");
     solo.setButtonText("SOLO");
     addAndMakeVisible(enabled);
@@ -655,8 +749,8 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
                     &saveA, &loadA, &saveB, &loadB})
         addAndMakeVisible(*b);
     enabled.setColour(juce::ToggleButton::textColourId, bright);
-    about.setTooltip("Skelly EQ 2.0 | Refined interface / minimum-phase DSP");
-    about.setButtonText("v2.0");
+    about.setTooltip("Skelly EQ 2.2 | Compact interface / minimum-phase DSP");
+    about.setButtonText("v2.2");
     about.setEnabled(false); // Don't open host-modal dialogs on plugin close.
     options.setTooltip("Cycle graph dB display range");
     options.onClick = [this]
@@ -669,10 +763,24 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     resetCurve.setButtonText("RESET CURVE");
     resetCurve.setTooltip("Apply the eight-band starting curve to all bands. Replaces their current settings; undo is host-dependent.");
     resetCurve.onClick = [this] { restoreReferenceCurve(); };
-    saveA.onClick = [this] { processor.storeSnapshot(0); };
-    loadA.onClick = [this] { processor.loadSnapshot(0); };
-    saveB.onClick = [this] { processor.storeSnapshot(1); };
-    loadB.onClick = [this] { processor.loadSnapshot(1); };
+    saveA.onClick = [this] { processor.storeSnapshot(0); snapshotStatus = "A STORED"; snapshotTicks = 75; repaint(); };
+    loadA.onClick = [this]
+    {
+        const bool available = processor.state.state.getChildWithName(juce::Identifier("snapshotA")).isValid();
+        if (available) processor.loadSnapshot(0);
+        snapshotStatus = available ? "A RECALL" : "A EMPTY";
+        snapshotTicks = 75;
+        graph.repaint(); repaint();
+    };
+    saveB.onClick = [this] { processor.storeSnapshot(1); snapshotStatus = "B STORED"; snapshotTicks = 75; repaint(); };
+    loadB.onClick = [this]
+    {
+        const bool available = processor.state.state.getChildWithName(juce::Identifier("snapshotB")).isValid();
+        if (available) processor.loadSnapshot(1);
+        snapshotStatus = available ? "B RECALL" : "B EMPTY";
+        snapshotTicks = 75;
+        graph.repaint(); repaint();
+    };
     for (auto* b : {&saveA, &loadA, &saveB, &loadB})
         b->setTooltip("A/B snapshots are stored inside the plugin state");
 
@@ -698,7 +806,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     formatDecibels(output);
     formatPercent(analyzeAmount);
 
-    buildTag.setText("V2.0 | SPECTRUM",
+    buildTag.setText("V2.2 | POLISHED",
                      juce::dontSendNotification);
     buildTag.setFont(juce::Font(juce::FontOptions(11.0f)));
     buildTag.setColour(juce::Label::textColourId, bright);
@@ -730,7 +838,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     q.setTooltip("Selected band filter Q / width.");
     output.setTooltip("Global output gain in dB.");
     analyzeAmount.setTooltip("FFT display intensity (does not change audio).");
-    phaseSelect.setTooltip("Linear mode is not implemented; audio uses the minimum-phase engine.");
+    phaseSelect.setTooltip("Minimum-phase DSP only. Linear is reserved/unimplemented and does not change latency.");
     resetCurve.setTooltip("Replace all eight band settings with the reference contour. Existing preset data is overwritten.");
 
     // Avoid showing stale spectrum from a previous editor session.
@@ -740,9 +848,11 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
         hannWindow[(size_t)j] = 0.5f - 0.5f * std::cos(
             juce::MathConstants<float>::twoPi * (float)j / 4095.f);
     // V1.4 processor and safe editor are preserved as a rollback path.
-    setSize(1338, 661);
+    // Default = 40% smaller than the original 1784x882 screenshot canvas.
+    // Do not restore the old 1338x661 default or JUCE will still open oversized.
     setResizable(true, true);
-    setResizeLimits(1159, 573, 1784, 882);
+    setResizeLimits(856, 423, 1605, 794);
+    setSize(1070, 529);
     if (auto* constraint = getConstrainer())
         constraint->setFixedAspectRatio((double)baseW / (double)baseH);
     startTimerHz(30); // FFT runs on message thread, not DSP thread.
@@ -785,8 +895,8 @@ void SkellyEQRestoredEditor::selectBand(int band)
     for (int b = 0; b < 8; ++b)
         bandTabs[(size_t)b].setToggleState(b == selectedBand, juce::dontSendNotification);
     graph.repaint();
-    repaint(juce::Rectangle<float>(85.f * getWidth() / baseW, 130.f * getHeight() / baseH,
-                                  720.f * getWidth() / baseW, 32.f * getHeight() / baseH).toNearestInt());
+    repaint(juce::Rectangle<float>(52.f * getWidth() / baseW, 86.f * getHeight() / baseH,
+                                  526.f * getWidth() / baseW, 27.f * getHeight() / baseH).toNearestInt());
 }
 void SkellyEQRestoredEditor::rebindBand()
 {
@@ -842,63 +952,57 @@ void SkellyEQRestoredEditor::restoreReferenceCurve()
 
 void SkellyEQRestoredEditor::drawMeters(juce::Graphics& g)
 {
-    // All paint coordinates are in the 1784 x 882 reference space; resized()
-    // scales the live controls using precisely the same coordinate system.
-    panel(g, {1527.f, 137.f, 204.f, 594.f}, 8.f);
-    label(g, "STEREO OUTPUT", 1537.f, 148.f, 183.f, 25.f, 15.f, bright);
-    separator(g, 1545.f, 1717.f, 183.f);
-    constexpr float top = 195.f, height = 166.f;
+    // Exactly matches the controls in resized(): no overpaint or screenshot labels.
+    panel(g, {909.f, 83.f, 145.f, 353.f}, 7.f);
+    label(g, "OUTPUT  /  PEAK + RMS", 915.f, 88.f, 134.f, 16.f, 10.3f, bright);
+    separator(g, 918.f, 1045.f, 107.f);
+    constexpr float top = 116.f, height = 100.f;
     for (int ch = 0; ch < 2; ++ch)
     {
-        const float x0 = 1560.f + (float)ch * 92.f;
+        const float x0 = 931.f + (float)ch * 58.f;
         for (int kind = 0; kind < 2; ++kind)
         {
-            const float x = x0 + kind * 26.f;
+            const float x = x0 + kind * 14.f;
             const float reading = kind == 0 ? meterPeak[ch] : meterRms[ch];
             const float db = juce::jlimit(-60.f, 6.f,
                 juce::Decibels::gainToDecibels(juce::jmax(0.f, reading), -60.f));
             const float level = juce::jlimit(0.f, 1.f, (db + 60.f) / 66.f);
-            g.setColour(juce::Colour(0xff0d1c11));
-            g.fillRoundedRectangle(x, top, 17.f, height, 3.f);
-            for (int segment = 0; segment < 27; ++segment)
+            g.setColour(juce::Colour(0xff102016));
+            g.fillRoundedRectangle(x, top, 10.f, height, 2.f);
+            for (int segment = 0; segment < 20; ++segment)
             {
-                const float segmentLevel = (float)(segment + 1) / 27.f;
-                const float y = top + height - (segment + 1) * (height / 27.f);
-                const bool lit = segmentLevel <= level;
-                juce::Colour c = segment > 24 ? juce::Colour(0xffffc65a)
-                               : segment > 20 ? juce::Colour(0xffbbff55)
-                               : juce::Colour(0xff42ff5c);
-                g.setColour(lit ? c : juce::Colour(0xff193821));
-                g.fillRoundedRectangle(x + 2.f, y + 1.f, 13.f, height / 27.f - 1.2f, 1.f);
+                const float y = top + height - (segment + 1) * 5.f;
+                const bool lit = (float)(segment + 1) / 20.f <= level;
+                const juce::Colour c = segment > 17 ? juce::Colour(0xffffbd66)
+                                     : segment > 15 ? juce::Colour(0xffaaff5e)
+                                     : juce::Colour(0xff47fa6b);
+                g.setColour(lit ? c : juce::Colour(0xff183421));
+                g.fillRoundedRectangle(x + 1.f, y + 1.f, 8.f, 3.5f, .8f);
             }
-            g.setColour(juce::Colour(0xff376740));
-            g.drawRoundedRectangle(x, top, 17.f, height, 3.f, .9f);
+            g.setColour(juce::Colour(0xff346b3f));
+            g.drawRoundedRectangle(x, top, 10.f, height, 2.f, .8f);
         }
-        // Over-level indicator with a short hold; green when clean, amber at clip.
-        g.setColour(clipHoldTicks[ch] > 0 ? juce::Colour(0xffff9d43)
-                                           : juce::Colour(0xff22482a));
-        g.fillEllipse(x0 + 14.f, 177.f, 10.f, 10.f);
-        label(g, ch == 0 ? "LEFT" : "RIGHT", x0 - 3.f, 365.f, 69.f, 18.f, 12.f, bright);
-        const float peak = juce::Decibels::gainToDecibels(meterPeak[ch], -60.f);
-        label(g, juce::String(peak, 1) + " dB", x0 - 11.f, 386.f, 88.f, 19.f, 12.f, bright);
+        g.setColour(clipHoldTicks[ch] > 0 ? juce::Colour(0xffffac4a)
+                                            : juce::Colour(0xff285332));
+        g.fillEllipse(x0 + 5.f, 109.f, 7.f, 6.f);
+        label(g, ch == 0 ? "L" : "R", x0, 219.f, 26.f, 12.f, 10.f, bright);
+        const float dbPeak = juce::Decibels::gainToDecibels(meterPeak[ch], -60.f);
+        label(g, juce::String(dbPeak, 1), x0 - 9.f, 231.f, 46.f, 13.f, 10.f, bright);
     }
-    g.setColour(juce::Colour(0xff9bbca2));
-    g.setFont(juce::Font(juce::FontOptions(10.f)));
+    g.setColour(juce::Colour(0xff91a99b));
+    g.setFont(juce::Font(juce::FontOptions(8.7f)));
     for (const int db : {6, 0, -18, -36, -54})
     {
         const float y = top + height - (db + 60.f) / 66.f * height;
-        g.drawText(db > 0 ? juce::String("+6") : juce::String(db), 1710, (int)y - 7, 20, 14,
-                   juce::Justification::centredLeft, false);
+        g.drawText(db > 0 ? juce::String("+6") : juce::String(db),
+                   1030, (int)y - 6, 21, 12, juce::Justification::centredLeft, false);
     }
-    separator(g, 1545.f, 1717.f, 412.f);
-    label(g, "FILTER SHAPE", 1542.f, 414.f, 170.f, 20.f, 13.f, bright);
-    label(g, "TYPE", 1539.f, 505.f, 63.f, 17.f, 10.f, green.withAlpha(.8f));
-    label(g, "CHANNEL", 1539.f, 534.f, 82.f, 16.f, 10.f, green.withAlpha(.8f));
-    label(g, "PHASE", 1539.f, 563.f, 57.f, 17.f, 10.f, green.withAlpha(.8f));
-    label(g, "SLOPE", 1539.f, 596.f, 57.f, 17.f, 10.f, green.withAlpha(.8f));
-    separator(g, 1545.f, 1717.f, 628.f);
-    label(g, "ANALYZER", 1545.f, 631.f, 174.f, 17.f, 12.f, bright);
-    label(g, "INTENSITY", 1544.f, 690.f, 174.f, 16.f, 11.f, green);
+    separator(g, 917.f, 1045.f, 247.f);
+    label(g, "FILTER SHAPE", 917.f, 249.f, 127.f, 13.f, 10.3f, bright);
+    label(g, "TYPE", 917.f, 318.f, 43.f, 20.f, 9.7f, green);
+    label(g, "ROUTE", 917.f, 342.f, 43.f, 20.f, 9.7f, green);
+    label(g, "PHASE", 917.f, 366.f, 43.f, 20.f, 9.7f, green);
+    label(g, "SLOPE", 917.f, 390.f, 43.f, 20.f, 9.7f, green);
 }
 
 void SkellyEQRestoredEditor::paint(juce::Graphics& g)
@@ -909,90 +1013,101 @@ void SkellyEQRestoredEditor::paint(juce::Graphics& g)
     juce::Graphics::ScopedSaveState guard(g);
     g.addTransform(juce::AffineTransform::scale(sx, sy));
 
-    // Blank frame and isolated emblem contain no fake controls or readouts.
+    // The clean graphic is FRAME ONLY, not an image of controls.
     if (skin.isValid())
         g.drawImage(skin, 0.f, 0.f, baseW, baseH, 0, 0, skin.getWidth(), skin.getHeight());
     else
     {
-        g.setColour(juce::Colour(0xff0b2511));
+        g.setColour(juce::Colour(0xff08190d));
         g.fillRect(0.f, 0.f, baseW, baseH);
-        g.setColour(green);
-        g.drawRoundedRectangle(juce::Rectangle<float>(10.f, 10.f, 1764.f, 860.f), 12.f, 2.f);
+        g.setColour(green.withAlpha(.5f));
+        g.drawRoundedRectangle(juce::Rectangle<float>(6.f, 6.f, baseW-12.f, baseH-12.f), 8.f, 1.5f);
     }
 
-    panel(g, {29.f, 24.f, 548.f, 91.f}, 10.f);
-    panel(g, {1159.f, 30.f, 571.f, 72.f}, 9.f);
+    // Compact header: real text and functional buttons, never baked fake UI.
+    panel(g, {19.f, 11.f, 323.f, 58.f}, 7.f);
+    panel(g, {615.f, 14.f, 439.f, 53.f}, 7.f);
     if (skull.isValid())
     {
-        g.setColour(green.withAlpha(.09f));
-        g.fillEllipse(784.f, 6.f, 220.f, 127.f);
+        g.setColour(green.withAlpha(.10f));
+        g.fillEllipse(473.f, 0.f, 128.f, 77.f);
         g.setOpacity(.98f);
-        g.drawImage(skull, 781.f, 0.f, 220.f, 131.f, 0, 0, skull.getWidth(), skull.getHeight());
+        g.drawImage(skull, 478.f, 0.f, 116.f, 77.f, 0, 0, skull.getWidth(), skull.getHeight());
         g.setOpacity(1.f);
     }
-    g.setColour(juce::Colour(0xffa6ffab));
-    g.setFont(juce::Font(juce::FontOptions(43.f).withStyle("Bold")));
-    g.drawFittedText("SKELLY EQ", juce::Rectangle<int>(62, 33, 477, 54),
+    g.setColour(juce::Colour(0xffb0ffb5));
+    g.setFont(juce::Font(juce::FontOptions(29.f).withStyle("Bold")));
+    g.drawFittedText("SKELLY EQ", juce::Rectangle<int>(34, 16, 288, 34),
                      juce::Justification::centredLeft, 1);
-    g.setColour(juce::Colour(0xffa8cdb0));
-    g.setFont(juce::Font(juce::FontOptions(14.f).withStyle("Bold")));
-    g.drawText("BONE-DEEP PARAMETRIC", 65, 84, 390, 23, juce::Justification::centredLeft);
-    label(g, "8 BANDS  /  4096 FFT  /  MINIMUM-PHASE ENGINE", 1110.f, 106.f, 613.f, 19.f, 11.f,
-          juce::Colour(0xff82ac89));
+    g.setColour(juce::Colour(0xffbedac1));
+    g.setFont(juce::Font(juce::FontOptions(10.5f).withStyle("Bold")));
+    g.drawText("BONE-DEEP PARAMETRIC", 37, 50, 277, 15, juce::Justification::centredLeft);
+    label(g, "8 BANDS  /  4096 FFT  /  MIN PHASE DSP", 630.f, 69.f, 242.f, 12.f,
+          9.f, juce::Colour(0xff79a784));
+    if (snapshotTicks > 0)
+        label(g, snapshotStatus, 892.f, 69.f, 151.f, 12.f, 9.2f, juce::Colour(0xffffc976));
 
-    panel(g, {31.f, 129.f, 1491.f, 602.f}, 7.f);
-    g.setColour(green.withAlpha(.32f));
-    g.fillRect(32.f, 128.f, 1488.f, 2.f);
-    g.fillRect(32.f, 729.f, 1488.f, 2.f);
-
-    // Band inspector: selected values are painted once, above the plot.
+    // Plot's toolbar is ABOVE graph component. No modal/overlay obstructs nodes.
+    panel(g, {20.f, 83.f, 884.f, 353.f}, 7.f);
     const auto bs = processor.bands();
     const auto& band = bs[(size_t)juce::jlimit(0, 7, selectedBand)];
-    juce::String freqText = band.freq >= 1000.0
-        ? juce::String(band.freq / 1000., 2) + " kHz"
-        : juce::String(band.freq, band.freq < 100. ? 1 : 0) + " Hz";
-    const juce::String gainText = juce::String(band.gain > 0.05 ? "+" : "") + juce::String(band.gain, 1) + " dB";
-    g.setColour(juce::Colour(0xff16271a));
-    g.fillRoundedRectangle(88.f, 136.f, 661.f, 25.f, 5.f);
+    const juce::String freqText = band.freq >= 1000.0
+        ? juce::String(band.freq / 1000.0, 2) + " kHz"
+        : juce::String(band.freq, band.freq < 100.0 ? 1 : 0) + " Hz";
+    const juce::String gainText = juce::String(band.gain > 0.05 ? "+" : "")
+        + juce::String(band.gain, 1) + " dB";
+    g.setColour(juce::Colour(0xff142c1a));
+    g.fillRoundedRectangle(50.f, 88.f, 439.f, 23.f, 4.f);
     g.setColour(juce::Colour(0xff397e47));
-    g.drawRoundedRectangle(88.f, 136.f, 661.f, 25.f, 5.f, .8f);
-    label(g, "BAND " + juce::String(selectedBand + 1), 99.f, 138.f, 92.f, 21.f, 12.f,
+    g.drawRoundedRectangle(50.f, 88.f, 439.f, 23.f, 4.f, .9f);
+    label(g, "B" + juce::String(selectedBand + 1), 54.f, 91.f, 43.f, 17.f, 11.f,
           juce::Colour(0xffffc96b));
-    label(g, freqText, 201.f, 138.f, 145.f, 21.f, 12.f, bright);
-    label(g, gainText, 365.f, 138.f, 129.f, 21.f, 12.f, bright);
-    label(g, "Q " + juce::String(band.q, 2), 508.f, 138.f, 106.f, 21.f, 12.f, bright);
-    label(g, band.enabled ? "ENABLED" : "BYPASSED", 628.f, 138.f, 110.f, 21.f, 11.f,
-          band.enabled ? green : juce::Colour(0xffb0b2ac));
-    const int rangeValues[] = {6, 12, 18, 30};
+    label(g, freqText, 96.f, 91.f, 108.f, 17.f, 11.f, bright);
+    label(g, gainText, 209.f, 91.f, 99.f, 17.f, 11.f, bright);
+    label(g, "Q " + juce::String(band.q, 2), 315.f, 91.f, 73.f, 17.f, 11.f, bright);
+    label(g, band.enabled ? (band.solo ? "SOLO" : "ACTIVE") : "BYPASS", 393.f, 91.f, 91.f, 17.f, 10.f,
+          band.solo ? juce::Colour(0xffffc976)
+                    : band.enabled ? bright : juce::Colour(0xffa7aaa7));
+    static constexpr const char* bandTypes[] = {"BELL", "LOW SHELF", "HIGH SHELF", "LOW CUT",
+                                                 "HIGH CUT", "NOTCH", "BAND PASS", "TILT"};
+    label(g, bandTypes[juce::jlimit(0, 7, band.type)], 491.f, 91.f, 88.f, 17.f, 9.5f, bright);
+
+    const int rangeValues[] = {6,12,18,30};
     const int range = rangeValues[juce::jlimit(0, 3,
         (int)processor.state.getRawParameterValue("graphRange")->load())];
     const int step = range == 6 ? 2 : range <= 18 ? 6 : 10;
     for (int db = -range; db <= range; db += step)
-        label(g, (db > 0 ? "+" : "") + juce::String(db), 36.f,
-              169.f + ((float)range - (float)db) / (2.f * (float)range) * 498.f - 10.f,
-              43.f, 21.f, 12.f, db == 0 ? bright : green.withAlpha(.76f));
-    const int ticks[] = {20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000};
-    for (const int frequency : ticks)
     {
-        const float px = 99.f + std::log((float)frequency / 20.f) / std::log(1000.f) * 1388.f;
-        label(g, frequency >= 1000 ? juce::String(frequency / 1000) + "K" : juce::String(frequency),
-              px - 27.f, 682.f, 54.f, 22.f, 13.f, bright);
+        const float yy = 120.f + ((float)range - (float)db) / (2.f * (float)range) * 274.f;
+        label(g, (db > 0 ? "+" : "") + juce::String(db),
+              21.f, yy - 8.f, 28.f, 16.f, 10.5f,
+              db == 0 ? bright : green.withAlpha(.80f));
     }
-    label(g, "Hz", 1446.f, 705.f, 50.f, 16.f, 11.f, green);
-    label(g, "DRAG NODES TO EDIT  /  SCROLL TO CHANGE Q  /  SHIFT FOR FINE CONTROL",
-          126.f, 704.f, 1002.f, 17.f, 11.f, green.withAlpha(.64f));
+    const int ticks[] = {20,50,100,200,500,1000,2000,5000,10000,20000};
+    for (const int f : ticks)
+    {
+        const float px = 50.f + 14.f + std::log((float)f / 20.f) / std::log(1000.f) * (836.f - 28.f);
+        label(g, f >= 1000 ? juce::String(f / 1000) + "K" : juce::String(f),
+              px-19.f, 396.f, 38.f, 15.f, 10.5f, bright);
+    }
+    label(g, "DRAG FREQ/GAIN  •  WHEEL Q  •  SHIFT FINE", 58.f, 417.f, 371.f, 14.f,
+          9.1f, green.withAlpha(.88f));
+    label(g, "MODE", 458.f, 417.f, 47.f, 14.f, 9.5f, green);
+    label(g, "FFT", 578.f, 417.f, 30.f, 14.f, 9.5f, green);
+    label(g, "LEVEL", 692.f, 417.f, 44.f, 14.f, 9.5f, green);
     drawMeters(g);
 
-    panel(g, {31.f, 746.f, 1491.f, 118.f}, 9.f);
-    g.setColour(green.withAlpha(.19f));
-    g.fillRect(582.f, 762.f, 1.f, 87.f);
-    g.fillRect(1139.f, 762.f, 1.f, 87.f);
-    label(g, "BAND SELECT", 83.f, 754.f, 173.f, 16.f, 12.f, bright);
-    label(g, "FREQUENCY", 638.f, 844.f, 146.f, 17.f, 13.f, bright);
-    label(g, "GAIN", 795.f, 844.f, 146.f, 17.f, 13.f, bright);
-    label(g, "Q / WIDTH", 953.f, 844.f, 146.f, 17.f, 13.f, bright);
-    label(g, "OUTPUT TRIM", 1179.f, 760.f, 117.f, 18.f, 12.f, green);
-    label(g, "BAND ROUTING", 1326.f, 762.f, 177.f, 18.f, 12.f, green);
+    // Bottom control deck; readable native-size labels and separate knob readouts.
+    panel(g, {20.f, 445.f, 1034.f, 73.f}, 7.f);
+    g.setColour(green.withAlpha(.20f));
+    g.drawVerticalLine(375, 452.f, 510.f);
+    g.drawVerticalLine(743, 452.f, 510.f);
+    label(g, "SELECT BAND", 32.f, 449.f, 195.f, 14.f, 10.f, bright);
+    label(g, "FREQUENCY", 391.f, 447.f, 100.f, 13.f, 10.3f, bright);
+    label(g, "GAIN", 505.f, 447.f, 100.f, 13.f, 10.3f, bright);
+    label(g, "Q / WIDTH", 619.f, 447.f, 100.f, 13.f, 10.3f, bright);
+    label(g, "OUTPUT", 767.f, 447.f, 100.f, 13.f, 10.3f, bright);
+    label(g, "MIN-PHASE ENGINE", 873.f, 462.f, 171.f, 15.f, 10.f, bright);
 }
 
 void SkellyEQRestoredEditor::resized()
@@ -1002,42 +1117,44 @@ void SkellyEQRestoredEditor::resized()
     {
         c.setBounds(juce::Rectangle<float>(x * sx, y * sy, w * sx, h * sy).toNearestInt());
     };
-    put(graph, 85, 169, 1416, 498);
-    put(about, 1173, 47, 79, 39);
-    put(options, 1261, 47, 85, 39);
-    put(saveA, 1355, 47, 86, 39);
-    put(loadA, 1447, 47, 86, 39);
-    put(saveB, 1539, 47, 86, 39);
-    put(loadB, 1631, 47, 87, 39);
-    // Band toolbar never overlaps the interactive response component.
-    put(enabled, 1114, 135, 90, 26);
-    put(solo, 1210, 135, 79, 26);
-    put(resetCurve, 1297, 135, 195, 26);
+    put(graph, 50, 120, 836, 274);
+    // Header actions: each independently clickable, with no overlap.
+    put(about,   623, 30, 51, 26);
+    put(options, 680, 30, 62, 26);
+    put(saveA,   748, 30, 66, 26);
+    put(loadA,   819, 30, 66, 26);
+    put(saveB,   890, 30, 66, 26);
+    put(loadB,   961, 30, 84, 26);
+    // Selected-band toolbar.
+    put(enabled,   586, 88, 76, 24);
+    put(solo,      667, 88, 64, 24);
+    put(resetCurve,737, 88, 150, 24);
 
-    // Dedicated side rail: no dropdowns or phase buttons inside the graph.
-    put(typeButtons[0], 1540, 438, 57, 29);
-    put(typeButtons[1], 1601, 438, 57, 29);
-    put(typeButtons[2], 1662, 438, 57, 29);
-    put(typeButtons[3], 1541, 472, 86, 26);
-    put(typeButtons[4], 1632, 472, 86, 26);
-    put(typeSelect, 1608, 503, 110, 25);
-    put(modeSelect, 1625, 531, 93, 26);
-    put(phaseSelect, 1604, 560, 114, 28);
-    put(slopeSelect, 1605, 593, 113, 27);
-    put(analyzeSelect, 1543, 651, 176, 26);
-    put(analyzeAmount, 1545, 708, 174, 20);
+    // Right rail, custom meters above 5 filter shapes and global choices.
+    put(typeButtons[0], 918, 264, 41, 23);
+    put(typeButtons[1], 963, 264, 41, 23);
+    put(typeButtons[2],1008, 264, 41, 23);
+    put(typeButtons[3], 918, 290, 64, 22);
+    put(typeButtons[4], 987, 290, 62, 22);
+    put(typeSelect,    966, 316, 83, 22);
+    put(channelSelect, 966, 340, 83, 22);
+    put(phaseSelect,   966, 364, 83, 22);
+    put(slopeSelect,   966, 388, 83, 22);
+    put(modeSelect,    506, 414, 70, 19);
+    put(analyzeSelect, 608, 414, 82, 19);
+    put(analyzeAmount, 738, 414, 148, 19);
 
-    // Three precision controls; explicit band tabs offer one-click selection.
-    put(bandSelect, 87, 774, 168, 28);
+    // Bottom controls: 8 direct band selectors plus compact, aligned dials.
+    put(bandSelect, 35, 465, 128, 22);
     for (int b = 0; b < 8; ++b)
-        put(bandTabs[(size_t)b], 79.f + 47.f * b, 811.f, 42.f, 31.f);
-    put(previous, 465, 773, 42, 30);
-    put(next, 516, 773, 42, 30);
-    put(frequency, 642, 752, 135, 89);
-    put(gain, 798, 752, 135, 89);
-    put(q, 954, 752, 135, 89);
-    put(output, 1182, 779, 106, 77);
-    put(channelSelect, 1324, 791, 179, 33);
+        put(bandTabs[(size_t)b], 35.f + 31.f * b, 490.f, 28.f, 22.f);
+    put(previous, 290, 465, 31, 22);
+    put(next, 326, 465, 31, 22);
+    put(frequency, 394, 459, 93, 55);
+    put(gain,      508, 459, 93, 55);
+    put(q,         622, 459, 93, 55);
+    put(output,    768, 459, 93, 55);
+    // Analyzer controls in the graph's slim status bar; bottom right displays a hint.
 }
 
 void SkellyEQRestoredEditor::timerCallback()
@@ -1073,6 +1190,11 @@ void SkellyEQRestoredEditor::timerCallback()
                         {
                             const float x = (float)k / 255.f;
                             const float freq = 20.f * std::pow(1000.f, x);
+                            if (freq >= sr * .5f)
+                            {
+                                spectrumScratch[(size_t)k] = -90.f;
+                                continue;
+                            }
                             const int bin = juce::jlimit(1, 2047,
                                 (int)std::round(freq * 4096.f / (float)sr));
                             // Hann's coherent gain ~2048; this normalizes the
@@ -1114,18 +1236,27 @@ void SkellyEQRestoredEditor::timerCallback()
     }
     for (int ch = 0; ch < 2; ++ch)
     {
-        const float currentPeak = processor.peaks[ch].load(std::memory_order_relaxed);
-        const float currentRms = processor.rms[ch].load(std::memory_order_relaxed);
+        const float currentPeak = juce::jmax(0.f, processor.peaks[ch].load(std::memory_order_relaxed));
+        const float currentRms = juce::jmax(0.f, processor.rms[ch].load(std::memory_order_relaxed));
         meterPeak[ch] = juce::jmax(currentPeak, meterPeak[ch] * .78f);
         meterRms[ch] = juce::jmax(currentRms, meterRms[ch] * .78f);
         clipHoldTicks[ch] = currentPeak >= 1.f ? 45 : juce::jmax(0, clipHoldTicks[ch] - 1);
+    }
+    if (snapshotTicks > 0)
+    {
+        --snapshotTicks;
+        repaint(juce::Rectangle<float>(889.f * getWidth() / baseW, 68.f * getHeight() / baseH,
+                                       159.f * getWidth() / baseW, 15.f * getHeight() / baseH).toNearestInt());
     }
     const int selectedType = (int)processor.state.getRawParameterValue(bandId(selectedBand, "type"))->load();
     const int types[] = {3, 0, 4, 5, 6};
     for (int i = 0; i < 5; ++i)
         typeButtons[i].setToggleState(selectedType == types[i], juce::dontSendNotification);
+    // Keep direct-select tabs in sync even when automation restores a different selection.
+    for (int b = 0; b < 8; ++b)
+        bandTabs[(size_t)b].setToggleState(b == selectedBand, juce::dontSendNotification);
     graph.repaint();
     const float sx = (float)getWidth() / baseW, sy = (float)getHeight() / baseH;
-    repaint(juce::Rectangle<float>(1526.f * sx, 140.f * sy, 205.f * sx, 278.f * sy).toNearestInt());
-    repaint(juce::Rectangle<float>(87.f * sx, 134.f * sy, 663.f * sx, 31.f * sy).toNearestInt());
+    repaint(juce::Rectangle<float>(909.f * sx, 83.f * sy, 145.f * sx, 168.f * sy).toNearestInt());
+    repaint(juce::Rectangle<float>(50.f * sx, 88.f * sy, 529.f * sx, 24.f * sy).toNearestInt());
 }

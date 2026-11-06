@@ -69,10 +69,12 @@ private:
         juce::Point<float> origin;
         juce::RangedAudioParameter* gestureParam = nullptr;
         juce::RangedAudioParameter* gainGestureParam = nullptr;
-        juce::Path cachedResponse;
+        juce::Path cachedResponse, cachedLaneA, cachedLaneB;
+        bool lanesDiffer = false;
         std::array<SkellyDSP::BandConfig, 8> cachedBands{};
         bool curveValid = false;
-        int cachedSlope = -1, cachedRange = -1, cachedWidth = -1, cachedHeight = -1;
+        int cachedSlope = -1, cachedRange = -1, cachedMode = -1;
+        int cachedWidth = -1, cachedHeight = -1;
         double cachedRate = -1.0;
     } graph;
 
@@ -106,6 +108,8 @@ private:
     std::unique_ptr<SliderAttachment> freqAttachment, gainAttachment, qAttachment, outputAttachment, analyzeAmountAttachment;
     std::unique_ptr<ComboAttachment> typeAttachment, phaseAttachment, slopeAttachment, modeAttachment, analyzeAttachment, channelAttachment;
     std::unique_ptr<ButtonAttachment> enabledAttachment, soloAttachment;
+    juce::String snapshotStatus;
+    int snapshotTicks = 0;
     float meterPeak[2]{}, meterRms[2]{};
     int clipHoldTicks[2]{};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyEQRestoredEditor)
