@@ -125,9 +125,7 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
             const int sections=(t==3||t==4)?slope:(t==7?2:1);
             for(int ch=0;ch<2;++ch)
             {
-                const bool route=mode==0
-                    ? (b.channel==0 || (b.channel==1 && ch==0) || (b.channel==2 && ch==1))
-                    : (b.channel==0 || (b.channel==3 && ch==0) || (b.channel==4 && ch==1));
+                const bool route=routesToLane(b, mode, ch);
                 if(!route) continue;
                 for(int k=0;k<sections;++k)
                     v[ch]=filters[i].filt[ch][k].tick(v[ch]);

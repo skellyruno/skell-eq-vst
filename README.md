@@ -1,3 +1,42 @@
+# Skelly EQ V2.2 — UI refinement, graph correctness, reliability checks (2026-11-06)
+
+**Default window: 1070 × 529.** Same compact size as V2.1 (40% smaller in each dimension than the original 1784 × 882 artwork canvas). Plugin manufacturer and product IDs, parameter IDs, and saved-state layout are unchanged.
+
+Changes from V2.1:
+
+- **Honest response graph:** the EQ contour now respects active Solo bands and each band’s L/R or M/S lane assignment. The bright green line is the dB-average of the two processed lanes, with faint amber/cyan lines when the lane responses differ; routing logic is shared with the processor.
+- **Nyquist visualization:** at low sample rates, the graph marks unavailable high frequencies rather than showing an aliased response; the analyzer does not invent FFT magnitudes above Nyquist.
+- **Predictable band dragging:** choosing the nearest overlapping node (preferring the selected node), proper continuous host gestures when switching between frequency/gain and Alt+Q, and formatted hover tooltips.
+- **A/B feedback:** temporary non-modal A/B save/recall status including a clear EMPTY status when no snapshot exists.
+- **Micro-polish:** selected-band type and Solo state, higher-contrast plot instructions, clarified output-meter labels, hover cursors, and better redraw coverage.
+- **CI/tests:** added `scripts/check_v22.py` validating layout control boundaries and collisions, source invariants, resources, and fallback behavior. Extended portable DSP tests for lane-routing in stereo and M/S. Updated GitHub Actions artifact names.
+
+**Important:** True linear-phase convolution is still **not implemented**. The Linear choice remains in the saved parameter schema for compatibility but the audio DSP remains minimum-phase. This V2.2 source has passed local portable DSP and static checks, **not** a Windows/MSVC JUCE build or an FL Studio runtime test. Keep your last known-working build for rollback.
+
+### Test checklist in FL Studio
+
+1. Close FL Studio. Install the freshly built V2.2 `.vst3` while avoiding duplicate old plugin bundles; rescan if needed.
+2. Open a *blank project*. Add/remove Skelly EQ and open/close its window at least 10 times. Save/reopen the project. Verify the window remains 1070×529 initially.
+3. Move a band, scroll Q, switch Alt+drag and regular drag mid-gesture, then automate Frequency/Gain/Q and check recorded host automation.
+4. Try Left/Right and Mid/Side routing with Solo, turn bands on/off, and inspect the separated response curves. Check the analyzer at 44.1, 48 and 96 kHz.
+5. Save A/B, recall both, and try loading an empty snapshot; use the safe editor fallback if the restored UI crashes (`-DSKELLY_RESTORED_EDITOR=OFF -DSKELLY_SAFE_EDITOR=ON`).
+
+### Portable checks (no JUCE download needed)
+
+```sh
+python scripts/check_v22.py
+c++ -std=c++17 -O2 -I tests/juce_stub tests/dsp_smoke.cpp -o skelly_dsp_smoke
+./skelly_dsp_smoke
+```
+
+---
+
+# Skelly EQ V2.1 — Compact interface (2026-10-28)
+
+**Default window:** 1070 × 529 (40% smaller in each dimension than the original 1784 × 882 reference). The rebuilt UI uses native compact text/control sizes. **Full MSVC/FL Studio build remains unverified.** See [`V210_COMPACT_UI_NOTES.md`](V210_COMPACT_UI_NOTES.md) for the changes and test steps.
+
+---
+
 # Skelly EQ V2.0 — DSP and GUI refinement (2026-10-27)
 
 **Build status:** Portable DSP smoke tests pass with g++ on Linux. A full JUCE build, MSVC compilation, VST3 validation, and FL Studio runtime testing are **not available in this environment**. Treat V2.0 as a source test release. V1.4's simple editor remains the fallback build.

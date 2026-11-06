@@ -64,6 +64,18 @@ private:
  int remaining=0;
 };
 struct BandConfig {bool enabled=true,solo=false;int type=0,channel=0;double freq=1000,gain=0,q=1;};
+// Use one routing rule for DSP and the editor's displayed response.
+// L/R-mode only understands Stereo/Left/Right assignments. M/S-mode only
+// understands Stereo/Mid/Side assignments. This matches the stored parameter
+// contract and avoids misleading graph curves for routed bands.
+inline bool routesToLane(const BandConfig& band, int stereoMode, int lane) noexcept {
+    if (lane < 0 || lane > 1) return false;
+    return stereoMode == 0
+        ? (band.channel == 0 || (band.channel == 1 && lane == 0)
+                             || (band.channel == 2 && lane == 1))
+        : (band.channel == 0 || (band.channel == 3 && lane == 0)
+                             || (band.channel == 4 && lane == 1));
+}
 inline int internalType(int uiType) { return uiType==3?4:uiType==4?3:uiType; }
 inline double cutoffQ(int index,int total) { const double theta=juce::MathConstants<double>::pi*(2*index+1)/(4*total);return 1.0/(2*std::cos(theta)); }
 inline Coeff tiltSection(int section, double freq, double gain, double q, double sr) {

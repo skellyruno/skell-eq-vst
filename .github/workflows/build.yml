@@ -1,24 +1,46 @@
 name: Build Skelly EQ
 on:
   workflow_dispatch:
-
+  push:
+    branches: [main]
 jobs:
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate V2.2 compact UI and safety checks
+        run: python scripts/check_v22.py
       - name: Configure
-        run: cmake -S . -B build -A x64
+        run: cmake -S . -B build -A x64 -DSKELLY_RESTORED_EDITOR=ON -DSKELLY_SAFE_EDITOR=ON -DSKELLY_TRACE_LIFECYCLE=OFF
       - name: Build
         run: cmake --build build --config Release --parallel 2
+      - name: Run DSP regression tests
+        run: ctest --test-dir build -C Release --output-on-failure
       - name: Package VST3
         shell: pwsh
         run: |
           $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter 'Skelly EQ.vst3' | Select-Object -First 1
           if (-not $plugin) { throw 'VST3 bundle not found' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-Windows-VST3.zip
+          Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-V2.2-Windows-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: SkellyEQ-Windows-VST3
-          path: SkellyEQ-Windows-VST3.zip
+          name: SkellyEQ-V2.2-Windows-VST3
+          path: SkellyEQ-V2.2-Windows-VST3.zip
           if-no-files-found: error
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate V2.2 compact UI and safety checks
+        run: python scripts/check_v22.py
+      - name: Configure
+        run: cmake -S . -B build -G Xcode
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+      - name: Run DSP regression tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkellyEQ-V2.2-macOS-VST3
+          path: build/SkellyEQ_artefacts/Release/VST3/*.vst3
+          if-no-files-found: warn
