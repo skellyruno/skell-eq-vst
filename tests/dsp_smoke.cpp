@@ -34,6 +34,43 @@ int main() {
                 assert(routesToLane(routed, mode, lane) == expected);
             }
         }
+    // Transitions complete in exactly N samples, remain within [0,1],
+    // and can be reversed mid-ramp without a single-sample discontinuity.
+    WetDryRamp fader;
+    fader.reset(0.0);
+    fader.setTarget(true, 288);
+    double last = 0.0;
+    for (int i=0; i<96; ++i) {
+        const double value=fader.next();
+        assert(value > last && value >= 0.0 && value <= 1.0);
+        last=value;
+    }
+    const double beforeReverse = fader.value();
+    fader.setTarget(false, 288);
+    const double firstReverse = fader.next();
+    assert(firstReverse < beforeReverse && firstReverse > 0.0);
+    for (int i=0; i<287; ++i) {
+        const double value=fader.next();
+        assert(value >= 0.0 && value <= 1.0);
+    }
+    assert(fader.value() == 0.0 && !fader.active());
+    fader.setTarget(true, 288);
+    for (int i=0; i<288; ++i) fader.next();
+    assert(fader.value() == 1.0 && fader.active());
+    fader.setTarget(false, 0);
+    assert(fader.value() == 0.0);
+    // Blend real filter output while rapidly toggling the wet/dry target.
+    Biquad transitionFilter;
+    transitionFilter.setCoefficients(design(0, 1200, 9.0, 2.0, sr), 0, true);
+    fader.reset(0.0);
+    for (int sample=0; sample<50000; ++sample) {
+        if (sample % 517 == 0) fader.setTarget((sample / 517) % 2 == 0, 288);
+        const double dry=0.3*std::sin(juce::MathConstants<double>::twoPi*730.0*sample/sr);
+        const double mix=fader.next();
+        const double wet=transitionFilter.tick(dry);
+        const double out=dry+mix*(wet-dry);
+        assert(std::isfinite(out) && std::abs(out) < 5.0);
+    }
     Biquad filter;
     filter.setCoefficients(design(0,800.0,9.0,2.0,sr),0,true);
     double sum=0;

@@ -25,6 +25,8 @@ public:
 private:
  struct Stage{SkellyDSP::Biquad filt[2][4];};
  Stage filters[8];
+ // Per-lane mix smoothing keeps bypass, solo and routing changes click-resistant.
+ SkellyDSP::WetDryRamp bandMix[8][2];
  SkellyDSP::BandConfig previous[8]{};
  int lastSlope=-1,lastMode=-1;
  juce::SmoothedValue<float> outputSmooth;

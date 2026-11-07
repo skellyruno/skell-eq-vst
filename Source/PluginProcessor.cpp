@@ -39,6 +39,17 @@ void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
             }
     lastSlope = -1;
     lastMode = -1;
+    // Initialize the lane wet/dry values at the real parameter state. This
+    // avoids an unwanted fade-in each time FL Studio starts playback.
+    const auto initialBands = bands();
+    const int initialMode = (int)state.getRawParameterValue("stereoMode")->load();
+    bool initialSolo = false;
+    for (const auto& b : initialBands) initialSolo |= b.enabled && b.solo;
+    for (int i = 0; i < 8; ++i)
+        for (int lane = 0; lane < 2; ++lane)
+            bandMix[i][lane].reset(initialBands[(size_t)i].enabled &&
+                (!initialSolo || initialBands[(size_t)i].solo) &&
+                routesToLane(initialBands[(size_t)i], initialMode, lane) ? 1.0 : 0.0);
     const double safeRate = (std::isfinite(sr) && sr >= 8000.0) ? sr : 44100.0;
     outputSmooth.reset(safeRate, 0.02);
     outputSmooth.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
@@ -61,22 +72,31 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
     const auto all=bands();
     const int slope=1+(int)state.getRawParameterValue("slope")->load();
     const int mode=(int)state.getRawParameterValue("stereoMode")->load();
-    const bool modeChanged=mode!=lastMode;
     bool anySolo=false;
     for(const auto& band:all) anySolo |= band.enabled && band.solo;
 
     // A short coefficient ramp is independent of the DAW's buffer size.
-    // Topology/routing changes reset old filter memory before reconfiguration,
-    // preventing stale state bursts when a bypassed band is re-enabled.
+    // Pure bypass/solo/routing changes must NOT reset biquad memory, because
+    // the old wet signal is still fading out. Only filter-type/slope changes
+    // need a topology reset; coefficient edits use an eight-ms ramp.
     const int rampSamples=juce::jmax(1,(int)std::round(sampleRateHz()*0.008));
+    const int bypassRampSamples=juce::jmax(1,(int)std::round(sampleRateHz()*0.006));
+    for (int i = 0; i < 8; ++i)
+        for (int lane = 0; lane < 2; ++lane)
+        {
+            const auto& band = all[(size_t)i];
+            bandMix[i][lane].setTarget(band.enabled &&
+                (!anySolo || band.solo) && routesToLane(band,mode,lane),
+                bypassRampSamples);
+        }
     for(int i=0;i<8;++i)
     {
         const auto& band=all[(size_t)i];
         const auto& old=previous[(size_t)i];
-        const bool topology=modeChanged || band.type!=old.type ||
-            band.channel!=old.channel || band.enabled!=old.enabled || slope!=lastSlope;
+        const bool topology=band.type!=old.type || slope!=lastSlope;
         const bool changed=topology || band.freq!=old.freq ||
             band.gain!=old.gain || band.q!=old.q;
+        previous[(size_t)i]=band;
         if(!changed) continue;
         const int ty=internalType(band.type);
         const int stages=(ty==3||ty==4)?slope:(ty==7?2:1);
@@ -92,7 +112,6 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
                              sampleRateHz());
                 filter.setCoefficients(next, rampSamples, topology || lastSlope<0);
             }
-        previous[(size_t)i]=band;
     }
     lastSlope=slope;
     lastMode=mode;
@@ -120,15 +139,17 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
         for(int i=0;i<8;++i)
         {
             const auto& b=all[(size_t)i];
-            if(!b.enabled || (anySolo && !b.solo)) continue;
             const int t=internalType(b.type);
             const int sections=(t==3||t==4)?slope:(t==7?2:1);
             for(int ch=0;ch<2;++ch)
             {
-                const bool route=routesToLane(b, mode, ch);
-                if(!route) continue;
+                const double mix=bandMix[i][ch].next();
+                if(mix <= 0.0) continue; // zero CPU for fully bypassed lane
+                const double dry=v[ch];
+                double wet=dry;
                 for(int k=0;k<sections;++k)
-                    v[ch]=filters[i].filt[ch][k].tick(v[ch]);
+                    wet=filters[i].filt[ch][k].tick(wet);
+                v[ch]=dry+mix*(wet-dry);
             }
         }
         if(mode==1)
