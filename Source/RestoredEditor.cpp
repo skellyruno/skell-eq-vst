@@ -137,12 +137,16 @@ void SkellyEQRestoredEditor::NeonLook::drawButtonBackground(juce::Graphics& g, j
 {
     const auto bounds = button.getLocalBounds().toFloat().reduced(1.2f);
     const bool active = button.getToggleState();
-    const auto base = juce::Colour(active ? 0xff1a5b24 : 0xff09180d);
+    const bool isBandTab = button.getName() == "SkellyBandTab";
+    const auto base = isBandTab ? (active ? juce::Colour(0xff60411b)
+                                         : button.findColour(juce::TextButton::buttonColourId))
+                                : juce::Colour(active ? 0xff1a5b24 : 0xff09180d);
     g.setGradientFill(juce::ColourGradient(base.brighter(hover ? .23f : .10f), 0.f, 0.f,
                          base.darker(down ? .24f : .05f), 0.f, bounds.getBottom(), false));
     g.fillRoundedRectangle(bounds, 4.f);
-    const auto stroke = active ? juce::Colour(0xff75ff86)
-                               : juce::Colour(hover ? 0xff45d954 : 0xff2b6236);
+    const auto stroke = isBandTab && active ? juce::Colour(0xffffc571)
+                       : active ? juce::Colour(0xff75ff86)
+                                : juce::Colour(hover ? 0xff45d954 : 0xff2b6236);
     g.setColour(stroke.withAlpha(button.isEnabled() ? .90f : .35f));
     g.drawRoundedRectangle(bounds, 4.f, active ? 1.6f : 1.f);
     if (active)
@@ -159,7 +163,8 @@ void SkellyEQRestoredEditor::NeonLook::drawButtonText(juce::Graphics& g, juce::T
     const float size = juce::jlimit(10.f, 12.5f, button.getHeight() * .52f);
     g.setFont(juce::Font(juce::FontOptions(size).withStyle("Bold")));
     g.setColour(juce::Colour(button.isEnabled()
-        ? (button.getToggleState() ? 0xfff1fff3 : 0xffbceac7)
+        ? (button.getName() == "SkellyBandTab" && button.getToggleState() ? 0xffffe0a0
+            : button.getToggleState() ? 0xfff1fff3 : 0xffbceac7)
         : 0xff667d6b));
     g.drawFittedText(button.getButtonText(), r, juce::Justification::centred, 1);
 }
@@ -332,7 +337,7 @@ int SkellyEQRestoredEditor::ResponseGraph::findBand(juce::Point<float> position)
         const auto& band = bands[(size_t)b];
         const auto target = juce::Point<float>(
             xForFrequency((float)band.freq),
-            juce::jlimit(9.f, (float)getHeight() - 9.f, yForGain((float)band.gain)));
+            juce::jlimit(9.f, (float)getHeight() - 9.f, yForGain(SkellyDSP::filterUsesGain(band.type) ? (float)band.gain : 0.f)));
         const float distance = position.getDistanceFrom(target);
         if (b == selected && distance <= 15.f) return b;
         if (distance < bestDistance)
@@ -549,7 +554,8 @@ void SkellyEQRestoredEditor::ResponseGraph::paint(juce::Graphics& g)
         anyEnabled |= band.enabled;
         const float x = xForFrequency((float)band.freq);
         // Keep handles reachable when a saved gain exceeds the display range.
-        const float y = juce::jlimit(9.f, h-9.f, yForGain((float)band.gain));
+        const float y = juce::jlimit(9.f, h-9.f,
+            yForGain(SkellyDSP::filterUsesGain(band.type) ? (float)band.gain : 0.f));
         // Dim ring = bypassed, bright ring = active, amber = selected.
         // Always render saved band positions, even if all bands are disabled.
         if (band.enabled || b == selected)
@@ -602,7 +608,7 @@ void SkellyEQRestoredEditor::ResponseGraph::mouseDown(const juce::MouseEvent& e)
     // Disabled points can be selected but must not be moved accidentally.
     if (!band.enabled) { dragged = -1; repaint(); return; }
     beginDragParam(param(dragged, e.mods.isAltDown() ? "q" : "freq"));
-    if (!e.mods.isAltDown())
+    if (!e.mods.isAltDown() && SkellyDSP::filterUsesGain(band.type))
     {
         gainGestureParam = param(dragged, "gain");
         if (gainGestureParam != nullptr) gainGestureParam->beginChangeGesture();
@@ -628,14 +634,15 @@ void SkellyEQRestoredEditor::ResponseGraph::mouseDrag(const juce::MouseEvent& e)
     else
     {
         beginDragParam(param(dragged, "freq"));
-        if (gainGestureParam == nullptr)
+        const bool hasGain = SkellyDSP::filterUsesGain(processor.bands()[(size_t)dragged].type);
+        if (hasGain && gainGestureParam == nullptr)
         {
             gainGestureParam = param(dragged, "gain");
             if (gainGestureParam != nullptr) gainGestureParam->beginChangeGesture();
         }
-        if (!e.mods.isCtrlDown() || std::abs(delta.x) >= std::abs(delta.y))
+        if (!e.mods.isCtrlDown() || std::abs(delta.x) >= std::abs(delta.y) || !hasGain)
             setParam(dragged, "freq", frequencyForX(xForFrequency(originalFrequency) + delta.x * fine));
-        if (!e.mods.isCtrlDown() || std::abs(delta.y) > std::abs(delta.x))
+        if (hasGain && (!e.mods.isCtrlDown() || std::abs(delta.y) > std::abs(delta.x)))
             setParam(dragged, "gain", gainForY(yForGain(originalGain) + delta.y * fine));
     }
 }
@@ -750,7 +757,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
         addAndMakeVisible(*b);
     enabled.setColour(juce::ToggleButton::textColourId, bright);
     about.setTooltip("Skelly EQ 2.3 | Compact interface / minimum-phase DSP");
-    about.setButtonText("v2.3");
+    about.setButtonText("v2.4");
     about.setEnabled(false); // Don't open host-modal dialogs on plugin close.
     options.setTooltip("Cycle graph dB display range");
     options.onClick = [this]
@@ -806,7 +813,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     formatDecibels(output);
     formatPercent(analyzeAmount);
 
-    buildTag.setText("V2.3 | SMOOTH",
+    buildTag.setText("V2.4 | SMOOTH",
                      juce::dontSendNotification);
     buildTag.setFont(juce::Font(juce::FontOptions(11.0f)));
     buildTag.setColour(juce::Label::textColourId, bright);
@@ -818,6 +825,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     for (int b = 0; b < 8; ++b)
     {
         auto& tab = bandTabs[(size_t)b];
+        tab.setName("SkellyBandTab");
         tab.setButtonText(juce::String(b + 1));
         tab.setTooltip("Select EQ band " + juce::String(b + 1));
         tab.setMouseCursor(juce::MouseCursor::PointingHandCursor);
@@ -915,6 +923,29 @@ void SkellyEQRestoredEditor::rebindBand()
     formatFrequency(frequency);
     formatDecibels(gain);
     formatQ(q);
+    updateBandControlStates();
+}
+void SkellyEQRestoredEditor::updateBandControlStates()
+{
+    const auto bands = processor.bands();
+    const auto& current = bands[(size_t)selectedBand];
+    const bool usesGain = SkellyDSP::filterUsesGain(current.type);
+    gain.setEnabled(usesGain);
+    gain.setTooltip(usesGain ? "Selected band gain in dB. Shift-drag for fine adjustment."
+                             : "Gain is not used by this filter. Switch to Peak/Shelf/Tilt to adjust gain.");
+    for (int i = 0; i < 8; ++i)
+    {
+        auto& tab = bandTabs[(size_t)i];
+        const auto& b = bands[(size_t)i];
+        const auto text = "Band " + juce::String(i + 1) +
+            (b.enabled ? (b.solo ? " - SOLO" : " - Active") : " - Bypassed");
+        if (tab.getTooltip() != text) tab.setTooltip(text);
+        const auto colour = !b.enabled ? juce::Colour(0xff172319)
+                          : b.solo ? juce::Colour(0xff4d3616)
+                          : juce::Colour(0xff0a2410);
+        if (tab.findColour(juce::TextButton::buttonColourId) != colour)
+            tab.setColour(juce::TextButton::buttonColourId, colour);
+    }
 }
 void SkellyEQRestoredEditor::setGlobal(const juce::String& key, float value)
 {
@@ -1063,7 +1094,9 @@ void SkellyEQRestoredEditor::paint(juce::Graphics& g)
     label(g, "B" + juce::String(selectedBand + 1), 54.f, 91.f, 43.f, 17.f, 11.f,
           juce::Colour(0xffffc96b));
     label(g, freqText, 96.f, 91.f, 108.f, 17.f, 11.f, bright);
-    label(g, gainText, 209.f, 91.f, 99.f, 17.f, 11.f, bright);
+    label(g, SkellyDSP::filterUsesGain(band.type) ? gainText : "GAIN N/A",
+          209.f, 91.f, 99.f, 17.f, 11.f,
+          SkellyDSP::filterUsesGain(band.type) ? bright : juce::Colour(0xff819b85));
     label(g, "Q " + juce::String(band.q, 2), 315.f, 91.f, 73.f, 17.f, 11.f, bright);
     label(g, band.enabled ? (band.solo ? "SOLO" : "ACTIVE") : "BYPASS", 393.f, 91.f, 91.f, 17.f, 10.f,
           band.solo ? juce::Colour(0xffffc976)
@@ -1090,7 +1123,7 @@ void SkellyEQRestoredEditor::paint(juce::Graphics& g)
         label(g, f >= 1000 ? juce::String(f / 1000) + "K" : juce::String(f),
               px-19.f, 396.f, 38.f, 15.f, 10.5f, bright);
     }
-    label(g, "DRAG FREQ/GAIN  •  WHEEL Q  •  SHIFT FINE", 58.f, 417.f, 371.f, 14.f,
+    label(g, "DRAG NODES  •  WHEEL Q  •  SHIFT FINE", 58.f, 417.f, 371.f, 14.f,
           9.1f, green.withAlpha(.88f));
     label(g, "MODE", 458.f, 417.f, 47.f, 14.f, 9.5f, green);
     label(g, "FFT", 578.f, 417.f, 30.f, 14.f, 9.5f, green);
@@ -1104,7 +1137,10 @@ void SkellyEQRestoredEditor::paint(juce::Graphics& g)
     g.drawVerticalLine(743, 452.f, 510.f);
     label(g, "SELECT BAND", 32.f, 449.f, 195.f, 14.f, 10.f, bright);
     label(g, "FREQUENCY", 391.f, 447.f, 100.f, 13.f, 10.3f, bright);
-    label(g, "GAIN", 505.f, 447.f, 100.f, 13.f, 10.3f, bright);
+    const auto selectedType = processor.bands()[(size_t)selectedBand].type;
+    label(g, SkellyDSP::filterUsesGain(selectedType) ? "GAIN" : "GAIN / N.A.",
+          505.f, 447.f, 100.f, 13.f, 10.3f,
+          SkellyDSP::filterUsesGain(selectedType) ? bright : juce::Colour(0xff69816f));
     label(g, "Q / WIDTH", 619.f, 447.f, 100.f, 13.f, 10.3f, bright);
     label(g, "OUTPUT", 767.f, 447.f, 100.f, 13.f, 10.3f, bright);
     label(g, "MIN-PHASE ENGINE", 873.f, 462.f, 171.f, 15.f, 10.f, bright);
@@ -1248,6 +1284,7 @@ void SkellyEQRestoredEditor::timerCallback()
         repaint(juce::Rectangle<float>(889.f * getWidth() / baseW, 68.f * getHeight() / baseH,
                                        159.f * getWidth() / baseW, 15.f * getHeight() / baseH).toNearestInt());
     }
+    updateBandControlStates();
     const int selectedType = (int)processor.state.getRawParameterValue(bandId(selectedBand, "type"))->load();
     const int types[] = {3, 0, 4, 5, 6};
     for (int i = 0; i < 5; ++i)
