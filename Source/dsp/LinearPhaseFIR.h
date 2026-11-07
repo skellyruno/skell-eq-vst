@@ -117,10 +117,10 @@ public:
     }
     void setInitialKernel(const Kernel& k) noexcept { current=k; pending=false; fading=false; }
 
-    // Worker may write only when state==0. On release-store(1) the audio
-    // thread may claim state 1 -> 2, copy, and return ownership 2 -> 0.
-    // Worker must not write while published != 0; prepare/teardown stop
-    // the worker before calling reset().
+    // 0=empty, 1=ready, 2=audio copying, 3=worker writing.
+    // The worker may atomically claim 0 or replace unconsumed state 1;
+    // audio claims only ready state 1, then releases 2 -> 0.
+    // prepare/teardown stop the worker before reset().
     std::atomic<int> published{0};
     Kernel workerKernel{};
 

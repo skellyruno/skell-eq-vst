@@ -45,8 +45,7 @@ public:
         std::array<BandConfig,8> lastBands{};
         int lastSlope=-1, lastMode=-1;
         while (!threadShouldExit()) {
-            if (owner.observedPhase.load(std::memory_order_relaxed)==0
-                && owner.linearEngine->published.load(std::memory_order_acquire)==0) {
+            if (owner.observedPhase.load(std::memory_order_relaxed)==0) {
                 const auto current=owner.bands();
                 const int slope=1+(int)owner.state.getRawParameterValue("slope")->load();
                 const int mode=(int)owner.state.getRawParameterValue("stereoMode")->load();
@@ -59,10 +58,24 @@ public:
                         a.freq!=b.freq || a.gain!=b.gain || a.q!=b.q;
                 }
                 if (changed) {
-                    StereoLinearFIR::buildKernel(current,mode,slope,owner.sampleRateHz(),
-                                                  owner.linearEngine->workerKernel);
-                    lastBands=current; lastSlope=slope; lastMode=mode;
-                    owner.linearEngine->published.store(1,std::memory_order_release);
+                    // Claim either the empty slot (0) or an unconsumed ready
+                    // slot (1). Replacing stale ready data matters when the
+                    // host changes a preset while stopped: first audio must
+                    // not briefly play the previous settings.
+                    int expected=0;
+                    bool claimed=owner.linearEngine->published.compare_exchange_strong(
+                        expected,3,std::memory_order_acq_rel);
+                    if (!claimed) {
+                        expected=1;
+                        claimed=owner.linearEngine->published.compare_exchange_strong(
+                            expected,3,std::memory_order_acq_rel);
+                    }
+                    if (claimed) {
+                        StereoLinearFIR::buildKernel(current,mode,slope,owner.sampleRateHz(),
+                                                      owner.linearEngine->workerKernel);
+                        lastBands=current; lastSlope=slope; lastMode=mode;
+                        owner.linearEngine->published.store(1,std::memory_order_release);
+                    }
                 }
             }
             wait(35);
