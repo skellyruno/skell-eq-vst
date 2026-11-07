@@ -63,6 +63,36 @@ private:
  Coeff target, delta{0,0,0,0,0};
  int remaining=0;
 };
+// Sample-accurate bypass/solo/channel transitions. Unlike a block-rate switch,
+// each lane fades from dry to wet (and back) without allocating or touching the
+// host on the real-time audio thread. Exactly reaches the target after N samples.
+class WetDryRamp {
+public:
+ void reset(double value) noexcept {
+  current=target=value > 0.5 ? 1.0 : 0.0;
+  increment=0.0; remaining=0;
+ }
+ void setTarget(bool wet, int samples) noexcept {
+  const double newTarget=wet ? 1.0 : 0.0;
+  if (newTarget == target) return;
+  target=newTarget;
+  remaining=samples > 0 ? samples : 0;
+  if (remaining == 0) {current=target; increment=0.0; return;}
+  increment=(target-current)/static_cast<double>(remaining);
+ }
+ double next() noexcept {
+  if (remaining > 0) {
+   current+=increment;
+   if (--remaining == 0) current=target;
+  }
+  return current;
+ }
+ bool active() const noexcept { return remaining > 0 || current > 0.0; }
+ double value() const noexcept { return current; }
+private:
+ double current=0.0,target=0.0,increment=0.0;
+ int remaining=0;
+};
 struct BandConfig {bool enabled=true,solo=false;int type=0,channel=0;double freq=1000,gain=0,q=1;};
 // Use one routing rule for DSP and the editor's displayed response.
 // L/R-mode only understands Stereo/Left/Right assignments. M/S-mode only
