@@ -25,6 +25,11 @@ public:
 private:
  struct Stage{SkellyDSP::Biquad filt[2][4];};
  Stage filters[8];
+ // Retired bank continues processing briefly while filter topology changes.
+ // This avoids cutting a resonant filter state off on the audio thread.
+ Stage retiredFilters[8];
+ SkellyDSP::WetDryRamp topologyMix[8];
+ int retiredStages[8]{};
  // Per-lane mix smoothing keeps bypass, solo and routing changes click-resistant.
  SkellyDSP::WetDryRamp bandMix[8][2];
  SkellyDSP::BandConfig previous[8]{};

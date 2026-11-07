@@ -37,6 +37,18 @@ void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
                 filter.reset();
                 filter.setCoefficients(Coeff{}, 0, true);
             }
+    for (auto& stage : retiredFilters)
+        for (auto& channel : stage.filt)
+            for (auto& filter : channel)
+            {
+                filter.reset();
+                filter.setCoefficients(Coeff{}, 0, true);
+            }
+    for (int i = 0; i < 8; ++i)
+    {
+        topologyMix[i].reset(1.0);
+        retiredStages[i] = 0;
+    }
     lastSlope = -1;
     lastMode = -1;
     // Initialize the lane wet/dry values at the real parameter state. This
@@ -81,6 +93,7 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
     // need a topology reset; coefficient edits use an eight-ms ramp.
     const int rampSamples=juce::jmax(1,(int)std::round(sampleRateHz()*0.008));
     const int bypassRampSamples=juce::jmax(1,(int)std::round(sampleRateHz()*0.006));
+    const int topologyRampSamples=juce::jmax(1,(int)std::round(sampleRateHz()*0.012));
     for (int i = 0; i < 8; ++i)
         for (int lane = 0; lane < 2; ++lane)
         {
@@ -89,17 +102,46 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
                 (!anySolo || band.solo) && routesToLane(band,mode,lane),
                 bypassRampSamples);
         }
+    // Filter types and stage counts are block-constant. Precompute outside
+    // the per-sample loop, especially useful in dense low-buffer sessions.
+    int stageCounts[8]{};
+    for (int i = 0; i < 8; ++i)
+    {
+        const int t = internalType(all[(size_t)i].type);
+        stageCounts[i] = (t == 3 || t == 4) ? slope : (t == 7 ? 2 : 1);
+    }
     for(int i=0;i<8;++i)
     {
         const auto& band=all[(size_t)i];
         const auto& old=previous[(size_t)i];
-        const bool topology=band.type!=old.type || slope!=lastSlope;
+        const int oldType=internalType(old.type);
+        const int ty=internalType(band.type);
+        // Slope only changes filter topology for cut filters. Do not
+        // reinitialize peaks or shelves when the global slope is edited.
+        const bool topology=lastSlope<0 || band.type!=old.type ||
+            ((ty==3||ty==4) && slope!=lastSlope);
         const bool changed=topology || band.freq!=old.freq ||
             band.gain!=old.gain || band.q!=old.q;
         previous[(size_t)i]=band;
         if(!changed) continue;
-        const int ty=internalType(band.type);
         const int stages=(ty==3||ty==4)?slope:(ty==7?2:1);
+        if (topology && lastSlope >= 0)
+        {
+            // Save the old TDF-II memory and coefficients (without heap
+            // allocations). The retired bank fades away over 12 ms.
+            // On a second topology change mid-fade we switch to the
+            // most recently active bank, bounding DSP and state storage.
+            retiredFilters[i]=filters[i];
+            retiredStages[i]=(oldType==3||oldType==4)?lastSlope:
+                             (oldType==7?2:1);
+            topologyMix[i].reset(0.0);
+            topologyMix[i].setTarget(true,topologyRampSamples);
+        }
+        else if (lastSlope < 0)
+        {
+            retiredStages[i]=0;
+            topologyMix[i].reset(1.0);
+        }
         for(int channel=0;channel<2;++channel)
             for(int section=0;section<4;++section)
             {
@@ -138,17 +180,23 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
         }
         for(int i=0;i<8;++i)
         {
-            const auto& b=all[(size_t)i];
-            const int t=internalType(b.type);
-            const int sections=(t==3||t==4)?slope:(t==7?2:1);
+            const int sections=stageCounts[i];
+            const double morph=topologyMix[i].next();
             for(int ch=0;ch<2;++ch)
             {
                 const double mix=bandMix[i][ch].next();
-                if(mix <= 0.0) continue; // zero CPU for fully bypassed lane
+                if(mix <= 0.0) continue; // skip fully bypassed lanes
                 const double dry=v[ch];
                 double wet=dry;
                 for(int k=0;k<sections;++k)
                     wet=filters[i].filt[ch][k].tick(wet);
+                if(morph<1.0 && retiredStages[i]>0)
+                {
+                    double oldWet=dry;
+                    for(int k=0;k<retiredStages[i];++k)
+                        oldWet=retiredFilters[i].filt[ch][k].tick(oldWet);
+                    wet=oldWet+(wet-oldWet)*morph;
+                }
                 v[ch]=dry+mix*(wet-dry);
             }
         }

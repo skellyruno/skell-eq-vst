@@ -8,8 +8,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate V2.3 compact UI and safety checks
-        run: python scripts/check_v23.py
+      - name: Validate V2.4 compact UI and safety checks
+        run: python scripts/check_v24.py
       - name: Configure
         run: cmake -S . -B build -A x64 -DSKELLY_RESTORED_EDITOR=ON -DSKELLY_SAFE_EDITOR=ON -DSKELLY_TRACE_LIFECYCLE=OFF
       - name: Build
@@ -21,18 +21,18 @@ jobs:
         run: |
           $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter 'Skelly EQ.vst3' | Select-Object -First 1
           if (-not $plugin) { throw 'VST3 bundle not found' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-V2.3-Windows-VST3.zip
+          Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-V2.4-Windows-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: SkellyEQ-V2.3-Windows-VST3
-          path: SkellyEQ-V2.3-Windows-VST3.zip
+          name: SkellyEQ-V2.4-Windows-VST3
+          path: SkellyEQ-V2.4-Windows-VST3.zip
           if-no-files-found: error
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate V2.3 compact UI and safety checks
-        run: python scripts/check_v23.py
+      - name: Validate V2.4 compact UI and safety checks
+        run: python scripts/check_v24.py
       - name: Configure
         run: cmake -S . -B build -G Xcode
       - name: Build
@@ -41,6 +41,6 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
-          name: SkellyEQ-V2.3-macOS-VST3
+          name: SkellyEQ-V2.4-macOS-VST3
           path: build/SkellyEQ_artefacts/Release/VST3/*.vst3
           if-no-files-found: warn

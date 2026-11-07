@@ -71,6 +71,34 @@ int main() {
         const double out=dry+mix*(wet-dry);
         assert(std::isfinite(out) && std::abs(out) < 5.0);
     }
+    // Exercise the same old/new topology morph used by processBlock.
+    // A resonant peak changes to high-pass while audio is playing; the old
+    // filter state should not be abruptly discarded at the block boundary.
+    Biquad previousTopology, nextTopology;
+    previousTopology.setCoefficients(design(0, 1200.0, 15.0, 8.0, sr), 0, true);
+    nextTopology.setCoefficients(design(4, 1200.0, 0.0, 0.7071, sr), 0, true);
+    WetDryRamp topologyFade;
+    topologyFade.reset(1.0);
+    for (int i=0; i<4096; ++i) {
+        const double x=0.12*std::sin(juce::MathConstants<double>::twoPi*1200.0*i/sr);
+        previousTopology.tick(x); // fill the outgoing filter's TDF-II memory
+    }
+    topologyFade.reset(0.0);
+    topologyFade.setTarget(true, 576);  // 12 ms at 48 kHz
+    double lastMorph=0.0;
+    for (int i=0; i<576; ++i) {
+        const double x=0.12*std::sin(juce::MathConstants<double>::twoPi*1200.0*(i+4096)/sr);
+        const double alpha=topologyFade.next();
+        const double oldWet=previousTopology.tick(x);
+        const double newWet=nextTopology.tick(x);
+        const double value=oldWet+(newWet-oldWet)*alpha;
+        assert(std::isfinite(value) && std::abs(value)<25.0);
+        assert(alpha >= lastMorph && alpha<=1.0);
+        lastMorph=alpha;
+    }
+    assert(topologyFade.value()==1.0);
+    for(int type=0;type<8;++type)
+        assert(filterUsesGain(type) == (type==0||type==1||type==2||type==7));
     Biquad filter;
     filter.setCoefficients(design(0,800.0,9.0,2.0,sr),0,true);
     double sum=0;

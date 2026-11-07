@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SkellyEQ VERSION 2.3.0 LANGUAGES C CXX)
+project(SkellyEQ VERSION 2.4.0 LANGUAGES C CXX)
 include(FetchContent)
 if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
   add_subdirectory("${JUCE_PATH}" JUCE)
@@ -34,7 +34,7 @@ target_link_libraries(SkellyEQ PRIVATE SkellyAssets juce::juce_audio_utils juce:
 
 # Staged V1.5 restoration is selected by default. The proven v1.4 safe editor
 # remains selectable for FL Studio crash isolation without touching processor DSP.
-option(SKELLY_RESTORED_EDITOR "V2.3 refined compact editor; safe editor preserved" ON)
+option(SKELLY_RESTORED_EDITOR "V2.4 refined compact editor; safe editor preserved" ON)
 option(SKELLY_SAFE_EDITOR "Use safe controls editor (recommended for FL Studio)" ON)
 option(SKELLY_DIAGNOSTIC_EDITOR "Use a completely minimal diagnostic window" OFF)
 option(SKELLY_TRACE_LIFECYCLE "Log plugin load, state and editor lifecycle checkpoints" OFF)

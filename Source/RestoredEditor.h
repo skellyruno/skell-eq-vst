@@ -81,6 +81,7 @@ private:
     void timerCallback() override;
     void selectBand(int);
     void rebindBand();
+    void updateBandControlStates();
     void setGlobal(const juce::String&, float);
     void setBandType(int);
     void drawMeters(juce::Graphics&);

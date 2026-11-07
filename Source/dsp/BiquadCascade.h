@@ -93,6 +93,11 @@ private:
  double current=0.0,target=0.0,increment=0.0;
  int remaining=0;
 };
+// Filters that do not use a gain parameter always draw and drag on the 0 dB line.
+// Shared by graph, editor and tests. Automation IDs and saved gain are untouched.
+inline bool filterUsesGain(int type) noexcept {
+  return type == 0 || type == 1 || type == 2 || type == 7;
+}
 struct BandConfig {bool enabled=true,solo=false;int type=0,channel=0;double freq=1000,gain=0,q=1;};
 // Use one routing rule for DSP and the editor's displayed response.
 // L/R-mode only understands Stereo/Left/Right assignments. M/S-mode only
