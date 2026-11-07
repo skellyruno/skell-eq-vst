@@ -724,7 +724,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
                                   "BAND 5", "BAND 6", "BAND 7", "BAND 8"});
     configureChoice(typeSelect, {"Peak", "L-Shelf", "H-Shelf", "L-Cut",
                                   "H-Cut", "Notch", "Band", "Tilt"});
-    configureChoice(phaseSelect, {"LINEAR N/A", "MIN PHASE", "ZERO LAT."});
+    configureChoice(phaseSelect, {"LINEAR FIR", "MIN PHASE", "ZERO LAT."});
     configureChoice(slopeSelect, {"12 dB", "24 dB", "36 dB", "48 dB"});
     configureChoice(modeSelect, {"L/R", "M/S"});
     configureChoice(analyzeSelect, {"OFF", "PRE", "POST", "ON"});
@@ -756,8 +756,8 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
                     &saveA, &loadA, &saveB, &loadB})
         addAndMakeVisible(*b);
     enabled.setColour(juce::ToggleButton::textColourId, bright);
-    about.setTooltip("Skelly EQ 2.3 | Compact interface / minimum-phase DSP");
-    about.setButtonText("v2.4");
+    about.setTooltip("Skelly EQ 2.5 | Genuine linear-phase FIR + click-free stereo mode transitions");
+    about.setButtonText("v2.5");
     about.setEnabled(false); // Don't open host-modal dialogs on plugin close.
     options.setTooltip("Cycle graph dB display range");
     options.onClick = [this]
@@ -813,7 +813,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     formatDecibels(output);
     formatPercent(analyzeAmount);
 
-    buildTag.setText("V2.4 | SMOOTH",
+    buildTag.setText("V2.5 | LINEAR FIR",
                      juce::dontSendNotification);
     buildTag.setFont(juce::Font(juce::FontOptions(11.0f)));
     buildTag.setColour(juce::Label::textColourId, bright);
@@ -846,7 +846,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     q.setTooltip("Selected band filter Q / width.");
     output.setTooltip("Global output gain in dB.");
     analyzeAmount.setTooltip("FFT display intensity (does not change audio).");
-    phaseSelect.setTooltip("Minimum-phase DSP only. Linear is reserved/unimplemented and does not change latency.");
+    phaseSelect.setTooltip("True symmetric FIR in Linear mode (2049 taps / 1152 samples total latency). Min and Zero Latency use zero-delay biquads. Switching phase updates host delay compensation.");
     resetCurve.setTooltip("Replace all eight band settings with the reference contour. Existing preset data is overwritten.");
 
     // Avoid showing stale spectrum from a previous editor session.
@@ -1073,7 +1073,9 @@ void SkellyEQRestoredEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xffbedac1));
     g.setFont(juce::Font(juce::FontOptions(10.5f).withStyle("Bold")));
     g.drawText("BONE-DEEP PARAMETRIC", 37, 50, 277, 15, juce::Justification::centredLeft);
-    label(g, "8 BANDS  /  4096 FFT  /  MIN PHASE DSP", 630.f, 69.f, 242.f, 12.f,
+    label(g, (int)processor.state.getRawParameterValue("phaseMode")->load()==0
+        ? "8 BANDS  /  2049-TAP LINEAR FIR" : "8 BANDS  /  4096 FFT  /  MIN PHASE DSP",
+        630.f, 69.f, 242.f, 12.f,
           9.f, juce::Colour(0xff79a784));
     if (snapshotTicks > 0)
         label(g, snapshotStatus, 892.f, 69.f, 151.f, 12.f, 9.2f, juce::Colour(0xffffc976));
@@ -1143,7 +1145,9 @@ void SkellyEQRestoredEditor::paint(juce::Graphics& g)
           SkellyDSP::filterUsesGain(selectedType) ? bright : juce::Colour(0xff69816f));
     label(g, "Q / WIDTH", 619.f, 447.f, 100.f, 13.f, 10.3f, bright);
     label(g, "OUTPUT", 767.f, 447.f, 100.f, 13.f, 10.3f, bright);
-    label(g, "MIN-PHASE ENGINE", 873.f, 462.f, 171.f, 15.f, 10.f, bright);
+    label(g, (int)processor.state.getRawParameterValue("phaseMode")->load()==0
+        ? "LINEAR FIR +1152 SAMPLES" : "ZERO-LATENCY IIR ENGINE",
+        873.f, 462.f, 171.f, 15.f, 10.f, bright);
 }
 
 void SkellyEQRestoredEditor::resized()

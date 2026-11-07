@@ -4,16 +4,22 @@
 #include "RestoredEditor.h"
 #include "CrashTrace.h"
 #include <cmath>
+#include <thread>
 using namespace SkellyDSP;
 static juce::String id(int i,const char* n){return "b"+juce::String(i+1)+"_"+n;}
 SkellyEQAudioProcessor::SkellyEQAudioProcessor()
     : AudioProcessor(BusesProperties().withInput("Input", juce::AudioChannelSet::stereo(), true)
                                       .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    linearEngine=std::make_unique<StereoLinearFIR>();
+    state.addParameterListener("phaseMode",this);
     SkellyTrace::checkpoint("processor: constructor EXIT");
 }
 SkellyEQAudioProcessor::~SkellyEQAudioProcessor()
 {
+    releaseResources();
+    state.removeParameterListener("phaseMode",this);
+    cancelPendingUpdate();
     SkellyTrace::checkpoint("processor: destructor ENTER");
 }
 juce::AudioProcessorValueTreeState::ParameterLayout SkellyEQAudioProcessor::makeParameters(){
@@ -27,9 +33,68 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyEQAudioProcessor::make
  return {p.begin(),p.end()};
 }
 std::array<BandConfig,8> SkellyEQAudioProcessor::bands() const {std::array<BandConfig,8> a;for(int i=0;i<8;++i){auto val=[&](const char* s){return state.getRawParameterValue(id(i,s))->load();};a[i]={val("enabled")>.5f,val("solo")>.5f,(int)val("type"),(int)val("channel"),val("freq"),val("gain"),val("q")};}return a;}
+// The worker owns all expensive 8192-point magnitude design + FIR FFT setup.
+// It polls APVTS atomics and publishes a complete kernel via a lock-free,
+// one-producer/one-consumer hand-off. Neither the worker nor the audio thread
+// ever waits on a mutex held by the other.
+class SkellyEQAudioProcessor::DesignerThread final : public juce::Thread {
+public:
+    explicit DesignerThread(SkellyEQAudioProcessor& p)
+        : Thread("Skelly EQ FIR designer"), owner(p) {}
+    void run() override {
+        std::array<BandConfig,8> lastBands{};
+        int lastSlope=-1, lastMode=-1;
+        while (!threadShouldExit()) {
+            if (owner.observedPhase.load(std::memory_order_relaxed)==0
+                && owner.linearEngine->published.load(std::memory_order_acquire)==0) {
+                const auto current=owner.bands();
+                const int slope=1+(int)owner.state.getRawParameterValue("slope")->load();
+                const int mode=(int)owner.state.getRawParameterValue("stereoMode")->load();
+                bool changed=slope!=lastSlope || mode!=lastMode;
+                for (int i=0;i<8;++i) {
+                    const auto& a=current[(size_t)i];
+                    const auto& b=lastBands[(size_t)i];
+                    changed |= a.enabled!=b.enabled || a.solo!=b.solo ||
+                        a.type!=b.type || a.channel!=b.channel ||
+                        a.freq!=b.freq || a.gain!=b.gain || a.q!=b.q;
+                }
+                if (changed) {
+                    StereoLinearFIR::buildKernel(current,mode,slope,owner.sampleRateHz(),
+                                                  owner.linearEngine->workerKernel);
+                    lastBands=current; lastSlope=slope; lastMode=mode;
+                    owner.linearEngine->published.store(1,std::memory_order_release);
+                }
+            }
+            wait(35);
+        }
+    }
+private:
+    SkellyEQAudioProcessor& owner;
+};
+
+void SkellyEQAudioProcessor::releaseResources() {
+    if (designer) { designer->signalThreadShouldExit(); designer->stopThread(5000); designer.reset(); }
+}
+
+void SkellyEQAudioProcessor::parameterChanged(const juce::String& id, float value) {
+    if (id=="phaseMode") {
+        observedPhase.store((int)value,std::memory_order_release);
+        triggerAsyncUpdate();
+    }
+}
+
+void SkellyEQAudioProcessor::handleAsyncUpdate() {
+    // JUCE host latency notifications go through the message thread, never
+    // from the audio callback. The phase parameter may change during playback.
+    const int phase=observedPhase.load(std::memory_order_acquire);
+    const int desired=phase==0 ? StereoLinearFIR::latency : 0;
+    if (getLatencySamples()!=desired) setLatencySamples(desired);
+}
+
 void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
 {
     SkellyTrace::checkpoint("processor: prepareToPlay ENTER");
+    releaseResources();
     for (auto& stage : filters)
         for (auto& channel : stage.filt)
             for (auto& filter : channel)
@@ -51,6 +116,9 @@ void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
     }
     lastSlope = -1;
     lastMode = -1;
+    activeStereoMode=(int)state.getRawParameterValue("stereoMode")->load();
+    previousStereoMode=activeStereoMode;
+    stereoFade.reset(1.0); stereoTransition=false;
     // Initialize the lane wet/dry values at the real parameter state. This
     // avoids an unwanted fade-in each time FL Studio starts playback.
     const auto initialBands = bands();
@@ -68,8 +136,53 @@ void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
         state.getRawParameterValue("outputGain")->load()));
     peaks[0].store(0.f); peaks[1].store(0.f);
     rms[0].store(0.f); rms[1].store(0.f);
-    setLatencySamples(0);
+    linearEngine->reset();
+    const auto initialPhase=(int)state.getRawParameterValue("phaseMode")->load();
+    observedPhase.store(initialPhase,std::memory_order_release);
+    // prepareToPlay is non-realtime: building the very first FIR here gives
+    // restored FL Studio projects a fully defined filter before audio starts.
+    auto first=std::make_unique<StereoLinearFIR::Kernel>();
+    StereoLinearFIR::buildKernel(initialBands,initialMode,
+        1+(int)state.getRawParameterValue("slope")->load(),safeRate,*first);
+    linearEngine->setInitialKernel(*first);
+    setLatencySamples(initialPhase==0 ? StereoLinearFIR::latency : 0);
+    designer=std::make_unique<DesignerThread>(*this);
+    designer->startThread(juce::Thread::Priority::low);
     SkellyTrace::checkpoint("processor: prepareToPlay EXIT");
+}
+
+void SkellyEQAudioProcessor::processMinimumSample(
+    double inL, double inR, int mode, Stage (&banks)[8], Stage (&retired)[8],
+    WetDryRamp (&topology)[8], WetDryRamp (&wet)[8][2], const int* stages, const int* retiredCounts,
+    double& outL, double& outR) noexcept
+{
+    double v[2]{inL,inR};
+    if (mode==1) {
+        v[0]=(inL+inR)*StereoLinearFIR::invSqrt2;
+        v[1]=(inL-inR)*StereoLinearFIR::invSqrt2;
+    }
+    for (int i=0;i<8;++i) {
+        const double morph=topology[i].next();
+        for (int lane=0;lane<2;++lane) {
+            const double mix=wet[i][lane].next();
+            if (mix<=0.0) continue;
+            const double dry=v[lane];
+            double processed=dry;
+            for (int k=0;k<stages[i];++k)
+                processed=banks[i].filt[lane][k].tick(processed);
+            if (morph<1.0) {
+                double prior=dry;
+                for (int k=0;k<retiredCounts[i];++k)
+                    prior=retired[i].filt[lane][k].tick(prior);
+                processed=prior+(processed-prior)*morph;
+            }
+            v[lane]=dry+mix*(processed-dry);
+        }
+    }
+    if (mode==1) {
+        outL=(v[0]+v[1])*StereoLinearFIR::invSqrt2;
+        outR=(v[0]-v[1])*StereoLinearFIR::invSqrt2;
+    } else { outL=v[0]; outR=v[1]; }
 }
 
 void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer&)
@@ -83,7 +196,32 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
 
     const auto all=bands();
     const int slope=1+(int)state.getRawParameterValue("slope")->load();
-    const int mode=(int)state.getRawParameterValue("stereoMode")->load();
+    const int requestedMode=(int)state.getRawParameterValue("stereoMode")->load();
+    const int phase=(int)state.getRawParameterValue("phaseMode")->load();
+    if (phase!=observedPhase.exchange(phase,std::memory_order_acq_rel)) triggerAsyncUpdate();
+    if (linearEngine) linearEngine->consumePublished();
+    // A new mode request during an existing crossfade is deferred until that
+    // crossfade completes, avoiding a discontinuous restart mid-transition.
+    if (!stereoTransition && activeStereoMode!=requestedMode) {
+        previousStereoMode=activeStereoMode;
+        for (int i=0;i<8;++i) {
+            switchFilters[i]=filters[i];
+            switchRetiredFilters[i]=retiredFilters[i];
+            switchTopology[i]=topologyMix[i];
+            switchRetiredStages[i]=retiredStages[i];
+            for(int lane=0;lane<2;++lane) switchBandMix[i][lane]=bandMix[i][lane];
+            const int type=internalType(previous[i].type);
+            switchStageCounts[i]=(type==3||type==4)?juce::jmax(1,lastSlope)
+                                  :(type==7?2:1);
+            for (int lane=0;lane<2;++lane)
+                for (auto& section:filters[i].filt[lane]) section.reset();
+        }
+        activeStereoMode=requestedMode;
+        stereoFade.reset(0.0);
+        stereoFade.setTarget(true,juce::jmax(1,(int)std::round(sampleRateHz()*0.02)));
+        stereoTransition=true;
+    }
+    const int mode=activeStereoMode;
     bool anySolo=false;
     for(const auto& band:all) anySolo |= band.enabled && band.solo;
 
@@ -172,40 +310,23 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
         double L=std::isfinite(left[j]) ? left[j] : 0.0;
         double R=std::isfinite(right[j]) ? right[j] : 0.0;
         if(analysis==1) analyzer.push((float)((L+R)*.5));
-        double v[2]{L,R};
-        if(mode==1)
-        {
-            v[0]=(L+R)*.7071067811865476;
-            v[1]=(L-R)*.7071067811865476;
+        if (phase==0 && linearEngine) {
+            linearEngine->process(L,R,L,R);
+        } else {
+            double mainL=0.0, mainR=0.0;
+            processMinimumSample(L,R,mode,filters,retiredFilters,
+                topologyMix,bandMix,stageCounts,retiredStages,mainL,mainR);
+            if (stereoTransition) {
+                double oldL=0.0, oldR=0.0;
+                processMinimumSample(L,R,previousStereoMode,
+                    switchFilters,switchRetiredFilters,switchTopology,
+                    switchBandMix,switchStageCounts,switchRetiredStages,oldL,oldR);
+                const double alpha=stereoFade.next();
+                L=oldL+(mainL-oldL)*alpha;
+                R=oldR+(mainR-oldR)*alpha;
+                if (alpha>=1.0) stereoTransition=false;
+            } else { L=mainL; R=mainR; }
         }
-        for(int i=0;i<8;++i)
-        {
-            const int sections=stageCounts[i];
-            const double morph=topologyMix[i].next();
-            for(int ch=0;ch<2;++ch)
-            {
-                const double mix=bandMix[i][ch].next();
-                if(mix <= 0.0) continue; // skip fully bypassed lanes
-                const double dry=v[ch];
-                double wet=dry;
-                for(int k=0;k<sections;++k)
-                    wet=filters[i].filt[ch][k].tick(wet);
-                if(morph<1.0 && retiredStages[i]>0)
-                {
-                    double oldWet=dry;
-                    for(int k=0;k<retiredStages[i];++k)
-                        oldWet=retiredFilters[i].filt[ch][k].tick(oldWet);
-                    wet=oldWet+(wet-oldWet)*morph;
-                }
-                v[ch]=dry+mix*(wet-dry);
-            }
-        }
-        if(mode==1)
-        {
-            L=(v[0]+v[1])*.7071067811865476;
-            R=(v[0]-v[1])*.7071067811865476;
-        }
-        else {L=v[0];R=v[1];}
         const double gain=outputSmooth.getNextValue();
         if(!std::isfinite(L) || !std::isfinite(R))
         {
@@ -326,6 +447,9 @@ void SkellyEQAudioProcessor::setStateInformation(const void* data, int bytes)
     }
     SkellyTrace::checkpoint("state: APVTS replace ENTER");
     state.replaceState(clean);
+    observedPhase.store((int)state.getRawParameterValue("phaseMode")->load(),
+                        std::memory_order_release);
+    triggerAsyncUpdate();
     SkellyTrace::checkpoint("state: RESTORE EXIT");
 }
 void SkellyEQAudioProcessor::storeSnapshot(int slot)
