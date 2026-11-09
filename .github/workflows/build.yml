@@ -24,7 +24,7 @@ jobs:
           Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-V2.5-Windows-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          retention-days: 3
+          retention-days: 1
           name: SkellyEQ-V2.5-Windows-VST3
           path: SkellyEQ-V2.5-Windows-VST3.zip
           if-no-files-found: error
@@ -42,7 +42,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
-          retention-days: 3
+          retention-days: 1
           name: SkellyEQ-V2.5-macOS-VST3
           path: build/SkellyEQ_artefacts/Release/VST3/*.vst3
           if-no-files-found: warn
