@@ -7,9 +7,9 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate V2.6 compact UI and safety checks
-        run: python scripts/check_v26.py
+      - uses: actions/checkout@v6
+      - name: Validate V2.7 compact UI and safety checks
+        run: python scripts/check_v27.py
       - name: Configure
         run: cmake -S . -B build -A x64 -DSKELLY_RESTORED_EDITOR=ON -DSKELLY_SAFE_EDITOR=ON -DSKELLY_TRACE_LIFECYCLE=OFF
       - name: Build
@@ -27,27 +27,27 @@ jobs:
           }
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item -LiteralPath $plugins[0].FullName -Destination dist -Recurse -Force
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
-          name: SkellyEQ-V2.6-Windows-VST3
+          name: SkellyEQ-V2.7-Windows-VST3
           path: dist/
           if-no-files-found: error
           retention-days: 1
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate V2.6 compact UI and safety checks
-        run: python scripts/check_v26.py
+      - uses: actions/checkout@v6
+      - name: Validate V2.7 compact UI and safety checks
+        run: python scripts/check_v27.py
       - name: Configure
         run: cmake -S . -B build -G Xcode
       - name: Build
         run: cmake --build build --config Release --parallel 2
       - name: Run DSP regression tests
         run: ctest --test-dir build -C Release --output-on-failure
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
-          name: SkellyEQ-V2.6-macOS-VST3
+          name: SkellyEQ-V2.7-macOS-VST3
           path: build/SkellyEQ_artefacts/Release/VST3/*.vst3
           if-no-files-found: warn
           retention-days: 1

@@ -121,14 +121,23 @@ public:
         }
     }
 
-    void reset() noexcept {
+    // Called on the audio thread when re-entering FIR from min-phase.
+    // Discard stale signal history without touching a worker-published kernel.
+    void clearStreamingHistory() noexcept {
         for (auto& ch: inputSpectra) for (auto& p:ch) p.fill(Complex{});
         for (auto& ch:inputBlock) ch.fill(0.0);
         for (auto& ch:ready) ch.fill(0.0);
         for (auto& ch:oldReady) ch.fill(0.0);
         for (auto& ch:overlap) ch.fill(0.0);
         for (auto& ch:oldOverlap) ch.fill(0.0);
-        ringSlot=0; position=0; fade.reset(1.0); fading=false;
+        for (auto& ch:previousTail) ch.fill(0.0);
+        ringSlot=0; position=0;
+        fade.reset(1.0); fading=false;
+        // Keep pending, published and workerKernel unchanged. The worker
+        // may be publishing concurrently on another thread.
+    }
+    void reset() noexcept {
+        clearStreamingHistory();
         pending=false; published.store(0,std::memory_order_release);
     }
     void setInitialKernel(const Kernel& k) noexcept { current=k; pending=false; fading=false; }

@@ -56,5 +56,20 @@ int main() {
         if(i>2000) {assert(std::abs(l-lastL)<1.0 && std::abs(r-lastR)<1.0);}
         lastL=l;lastR=r;
     }
-    std::cout<<"linear phase impulse/PDC, stereo matrix and morph passed\n";
+    // FIR history must not replay samples from a previous linear-mode session.
+    for (int i=0;i<5000;++i) {
+        double l=0,r=0;
+        engine->process(0.25,-0.18,l,r);
+    }
+    engine->clearStreamingHistory();
+    for (int i=0;i<4500;++i) {
+        double l=999.0,r=999.0;
+        engine->process(0.0,0.0,l,r);
+        if (!std::isfinite(l) || !std::isfinite(r) ||
+            std::abs(l)>1e-10 || std::abs(r)>1e-10) {
+            std::cerr<<"stale FIR audio leaked after returning from minimum phase at "<<i<<"\n";
+            return 4;
+        }
+    }
+    std::cout<<"linear phase impulse/PDC, stereo matrix, morph and clean re-entry passed\n";
 }

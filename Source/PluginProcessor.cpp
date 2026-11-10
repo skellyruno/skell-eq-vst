@@ -128,7 +128,6 @@ void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
         retiredStages[i] = 0;
     }
     lastSlope = -1;
-    lastMode = -1;
     activeStereoMode=(int)state.getRawParameterValue("stereoMode")->load();
     previousStereoMode=activeStereoMode;
     stereoFade.reset(1.0); stereoTransition=false;
@@ -152,6 +151,7 @@ void SkellyEQAudioProcessor::prepareToPlay(double sr,int)
     linearEngine->reset();
     const auto initialPhase=(int)state.getRawParameterValue("phaseMode")->load();
     observedPhase.store(initialPhase,std::memory_order_release);
+    renderedPhase=initialPhase;
     // prepareToPlay is non-realtime: building the very first FIR here gives
     // restored FL Studio projects a fully defined filter before audio starts.
     auto first=std::make_unique<StereoLinearFIR::Kernel>();
@@ -212,10 +212,38 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
     const int requestedMode=(int)state.getRawParameterValue("stereoMode")->load();
     const int phase=(int)state.getRawParameterValue("phaseMode")->load();
     if (phase!=observedPhase.exchange(phase,std::memory_order_acq_rel)) triggerAsyncUpdate();
+    // Prevent replay of old FIR samples after minimum-phase playback.
+    // This reset touches only audio-thread-owned signal history.
+    if (phase != renderedPhase)
+    {
+        if (phase == 0 && linearEngine != nullptr)
+        {
+            linearEngine->clearStreamingHistory();
+            stereoTransition = false;
+            stereoFade.reset(1.0);
+            activeStereoMode = requestedMode;
+            previousStereoMode = requestedMode;
+        }
+        if (phase != 0 && renderedPhase == 0)
+            lastSlope = -1; // rebuild stale IIR filter memory on FIR exit
+        renderedPhase = phase;
+    }
     if (linearEngine) linearEngine->consumePublished();
-    // A new mode request during an existing crossfade is deferred until that
-    // crossfade completes, avoiding a discontinuous restart mid-transition.
-    if (!stereoTransition && activeStereoMode!=requestedMode) {
+    // FIR routing lives in the background-designed matrix. Do not create an
+    // IIR stereo fade while FIR is active: it would be frozen until return.
+    if (phase == 0)
+    {
+        if (activeStereoMode != requestedMode)
+        {
+            activeStereoMode = requestedMode;
+            previousStereoMode = requestedMode;
+            stereoTransition = false;
+            stereoFade.reset(1.0);
+        }
+    }
+    // On the minimum-phase path, keep old/new filter state alive through the
+    // 20ms stereo crossfade; defer an additional request until it completes.
+    else if (!stereoTransition && activeStereoMode!=requestedMode) {
         previousStereoMode=activeStereoMode;
         for (int i=0;i<8;++i) {
             switchFilters[i]=filters[i];
@@ -307,7 +335,6 @@ void SkellyEQAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::
             }
     }
     lastSlope=slope;
-    lastMode=mode;
 
     const float target=juce::Decibels::decibelsToGain(
         state.getRawParameterValue("outputGain")->load());
