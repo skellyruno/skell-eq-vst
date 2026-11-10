@@ -663,6 +663,10 @@ void SkellyEQRestoredEditor::ResponseGraph::mouseDoubleClick(const juce::MouseEv
     for (int i = 0; i < 8; ++i)
         if (!bands[(size_t)i].enabled)
         {
+            // An empty-graph double-click creates a *Peak* node, not a
+            // leftover cut/notch shape inherited from the disabled slot.
+            // All changes notify the host with discrete automation gestures.
+            setParam(i, "type", 0.f);
             for (auto field : {"freq", "gain", "enabled"})
                 if (auto* p = param(i, field))
                 {
@@ -696,8 +700,10 @@ void SkellyEQRestoredEditor::ResponseGraph::mouseMove(const juce::MouseEvent& e)
     const juce::String frequency = cfg.freq >= 1000.0
         ? juce::String(cfg.freq / 1000.0, 2) + " kHz"
         : juce::String(cfg.freq, 1) + " Hz";
+    const juce::String gainText = SkellyDSP::filterUsesGain(cfg.type)
+        ? juce::String(cfg.gain, 1) + " dB" : "Gain N/A";
     setTooltip("Band " + juce::String(band + 1) + "  |  " + frequency
-               + "  |  " + juce::String(cfg.gain, 1) + " dB  |  Q "
+               + "  |  " + gainText + "  |  Q "
                + juce::String(cfg.q, 2)
                + (cfg.enabled ? "" : "  |  BYPASSED"));
 }
@@ -756,8 +762,8 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
                     &saveA, &loadA, &saveB, &loadB})
         addAndMakeVisible(*b);
     enabled.setColour(juce::ToggleButton::textColourId, bright);
-    about.setTooltip("Skelly EQ 2.5 | Genuine linear-phase FIR + click-free stereo mode transitions");
-    about.setButtonText("v2.5");
+    about.setTooltip("Skelly EQ 2.6 | Optimized linear-phase FIR + stereo mode crossfading");
+    about.setButtonText("v2.6");
     about.setEnabled(false); // Don't open host-modal dialogs on plugin close.
     options.setTooltip("Cycle graph dB display range");
     options.onClick = [this]
@@ -813,7 +819,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     formatDecibels(output);
     formatPercent(analyzeAmount);
 
-    buildTag.setText("V2.5 | LINEAR FIR",
+    buildTag.setText("V2.6 | LINEAR FIR",
                      juce::dontSendNotification);
     buildTag.setFont(juce::Font(juce::FontOptions(11.0f)));
     buildTag.setColour(juce::Label::textColourId, bright);
@@ -914,6 +920,10 @@ void SkellyEQRestoredEditor::rebindBand()
     freqAttachment = std::make_unique<SliderAttachment>(processor.state, bandId(selectedBand, "freq"), frequency);
     gainAttachment = std::make_unique<SliderAttachment>(processor.state, bandId(selectedBand, "gain"), gain);
     qAttachment = std::make_unique<SliderAttachment>(processor.state, bandId(selectedBand, "q"), q);
+    // configureDial's zero reset is correct for gain, but invalid for Q;
+    // the actual neutral Q should be restored when rebinding a band.
+    if (auto* p = processor.state.getParameter(bandId(selectedBand, "q")))
+        q.setDoubleClickReturnValue(true, p->convertFrom0to1(p->getDefaultValue()));
     if (auto* p = processor.state.getParameter(bandId(selectedBand, "freq")))
         frequency.setDoubleClickReturnValue(true, p->convertFrom0to1(p->getDefaultValue()));
     typeAttachment = std::make_unique<ComboAttachment>(processor.state, bandId(selectedBand, "type"), typeSelect);

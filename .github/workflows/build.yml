@@ -8,32 +8,37 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate V2.5 compact UI and safety checks
-        run: python scripts/check_v25.py
+      - name: Validate V2.6 compact UI and safety checks
+        run: python scripts/check_v26.py
       - name: Configure
         run: cmake -S . -B build -A x64 -DSKELLY_RESTORED_EDITOR=ON -DSKELLY_SAFE_EDITOR=ON -DSKELLY_TRACE_LIFECYCLE=OFF
       - name: Build
         run: cmake --build build --config Release --parallel 2
       - name: Run DSP regression tests
         run: ctest --test-dir build -C Release --output-on-failure
-      - name: Package VST3
+      - name: Verify and stage VST3 bundle
         shell: pwsh
         run: |
-          $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter 'Skelly EQ.vst3' | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle not found' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellyEQ-V2.5-Windows-VST3.zip
+          $plugins = @(Get-ChildItem -Path build -Recurse -Directory -Filter 'Skelly EQ.vst3')
+          if ($plugins.Count -ne 1) { throw "Expected one VST3 bundle, found $($plugins.Count)" }
+          $binary = Join-Path $plugins[0].FullName 'Contents/x86_64-win/Skelly EQ.vst3'
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw "Expected Windows VST3 binary missing: $binary"
+          }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item -LiteralPath $plugins[0].FullName -Destination dist -Recurse -Force
       - uses: actions/upload-artifact@v4
         with:
-          retention-days: 1
-          name: SkellyEQ-V2.5-Windows-VST3
-          path: SkellyEQ-V2.5-Windows-VST3.zip
+          name: SkellyEQ-V2.6-Windows-VST3
+          path: dist/
           if-no-files-found: error
+          retention-days: 1
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate V2.5 compact UI and safety checks
-        run: python scripts/check_v25.py
+      - name: Validate V2.6 compact UI and safety checks
+        run: python scripts/check_v26.py
       - name: Configure
         run: cmake -S . -B build -G Xcode
       - name: Build
@@ -42,7 +47,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
-          retention-days: 1
-          name: SkellyEQ-V2.5-macOS-VST3
+          name: SkellyEQ-V2.6-macOS-VST3
           path: build/SkellyEQ_artefacts/Release/VST3/*.vst3
           if-no-files-found: warn
+          retention-days: 1
