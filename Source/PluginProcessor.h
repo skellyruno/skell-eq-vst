@@ -57,10 +57,11 @@ private:
  // Per-lane mix smoothing keeps bypass, solo and routing changes click-resistant.
  SkellyDSP::WetDryRamp bandMix[8][2];
  SkellyDSP::BandConfig previous[8]{};
- int lastSlope=-1,lastMode=-1;
+ int lastSlope=-1;
  juce::SmoothedValue<float> outputSmooth;
  std::unique_ptr<SkellyDSP::StereoLinearFIR> linearEngine;
  std::unique_ptr<DesignerThread> designer;
  std::atomic<int> observedPhase{1};
+ int renderedPhase=1; // audio-thread-owned; independent of host PDC updates
  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyEQAudioProcessor)
 };

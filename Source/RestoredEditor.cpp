@@ -762,8 +762,8 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
                     &saveA, &loadA, &saveB, &loadB})
         addAndMakeVisible(*b);
     enabled.setColour(juce::ToggleButton::textColourId, bright);
-    about.setTooltip("Skelly EQ 2.6 | Optimized linear-phase FIR + stereo mode crossfading");
-    about.setButtonText("v2.6");
+    about.setTooltip("Skelly EQ 2.7 | Clean phase switching + linear FIR");
+    about.setButtonText("v2.7");
     about.setEnabled(false); // Don't open host-modal dialogs on plugin close.
     options.setTooltip("Cycle graph dB display range");
     options.onClick = [this]
@@ -819,7 +819,7 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
     formatDecibels(output);
     formatPercent(analyzeAmount);
 
-    buildTag.setText("V2.6 | LINEAR FIR",
+    buildTag.setText("V2.7 | LINEAR FIR",
                      juce::dontSendNotification);
     buildTag.setFont(juce::Font(juce::FontOptions(11.0f)));
     buildTag.setColour(juce::Label::textColourId, bright);

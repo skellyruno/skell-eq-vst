@@ -1,11 +1,11 @@
-# Skelly EQ V2.6
+# Skelly EQ V2.7
 
-Skelly EQ is an eight-band JUCE 8 VST3/Standalone parametric equalizer with a resizable **1070×529** neon-green skull interface, a 4096-point real-time visual analyzer, L/R and Mid/Side band routing, A/B snapshots and host-automatable controls. The plugin identifiers, automation IDs and state format are preserved from earlier versions.
+Skelly EQ is an eight-band JUCE 8 VST3/Standalone parametric equalizer with a resizable **1070×529** neon-green skull interface, a 4096-point real-time visual analyzer, L/R and Mid/Side band routing, A/B snapshots and host-automatable controls. The plugin identifiers, automation IDs and state format are preserved from earlier versions. The FIR streaming history is cleared when returning from the minimum-phase engine, preventing replay of old buffered audio.
 
 ## Audio paths
 
 - **Minimum Phase / Zero Latency:** double-precision TDF-II biquad cascades. Frequency/gain/Q coefficient ramps (8 ms), band bypass/Solo/routing ramps (6 ms), filter type/cut slope morphs (12 ms), and L/R↔M/S crossfades (20 ms). Reports zero algorithmic latency.
-- **Linear FIR:** 2049-tap symmetric FIR, 128-sample partitioned FFT convolution, **1152 samples reported latency** (24 ms at 48 kHz). Kernels are generated off the audio thread, published with a lock-free handoff and crossfaded while processing. V2.6 skips redundant cross-channel matrices and FFT conjugate bins to reduce CPU work. L/R↔M/S automation produces updated FIR kernels rather than using the IIR mode-switch crossfade.
+- **Linear FIR:** 2049-tap symmetric FIR, 128-sample partitioned FFT convolution, **1152 samples reported latency** (24 ms at 48 kHz). Kernels are generated off the audio thread, published with a lock-free handoff and crossfaded while processing. V2.7 skips redundant cross-channel matrices and FFT conjugate bins to reduce CPU work. L/R↔M/S automation produces updated FIR kernels rather than using the IIR mode-switch crossfade.
 - Output level metering has independent L/R peak and RMS readings. The last-resort ±32 host-safety clamp is **not a mastering limiter**; excessive boosts can still clip the DAW output.
 
 ## Testing
@@ -19,7 +19,7 @@ c++ -O2 -std=c++17 -I tests/juce_stub tests/linear_phase.cpp -o skelly_linear &&
 c++ -O2 -std=c++17 -I tests/juce_stub tests/linear_phase_reference.cpp -o skelly_reference && ./skelly_reference
 ```
 
-The reference test checks the FIR's actual stereo output against independent direct convolution, frequency response, and PDC timing across **44.1/48/96 kHz** in both L/R and M/S modes. The Windows/macOS GitHub Actions workflow builds the plugin and runs all three tests. The Windows artifact includes one VST3 bundle instead of a ZIP nested inside another ZIP.
+The reference test checks the FIR's actual stereo output against independent direct convolution, frequency response, and PDC timing across **44.1/48/96 kHz** in both L/R and M/S modes. The Windows/macOS GitHub Actions workflow builds the plugin and runs all three tests, including the FIR re-entry regression. The Windows artifact includes one VST3 bundle instead of a ZIP nested inside another ZIP.
 
 ## Windows build
 
@@ -47,4 +47,4 @@ To isolate crashes, configure `-DSKELLY_RESTORED_EDITOR=OFF -DSKELLY_SAFE_EDITOR
 - Source-level UI geometry tests and successful CI builds do **not** prove in-host graphical behavior, automation timing or FL Studio open/close stability. Verify those in a blank FL Studio project before relying on the new VST3 in production.
 - Keep your last working VST3 as a rollback. Re-scan after replacing the plugin to avoid duplicate versions.
 
-See `V260_RELEASE_NOTES.md` for the latest implementation notes and `HISTORY_V1_X.md` / `V2xx_RELEASE_NOTES.md` for prior decisions and fixes.
+See `V270_RELEASE_NOTES.md` for the latest implementation notes and `HISTORY_V1_X.md` / `V2xx_RELEASE_NOTES.md` for prior decisions and fixes.
