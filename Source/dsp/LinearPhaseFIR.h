@@ -25,8 +25,12 @@ public:
     static constexpr double invSqrt2 = 0.7071067811865475244;
     using Spectrum = std::array<Complex, fftSize>;
     struct Kernel {
-        // (output channel * 2 + input channel), partition, frequency bin
+        // (output channel * 2 + input channel), partition, frequency bin.
+        // L/R mode has no crossfeed; when M/S lanes have identical responses,
+        // the off-diagonal matrix terms vanish too. Skip these paths entirely
+        // while retaining a fixed-size, allocation-free kernel handoff.
         std::array<std::array<Spectrum, partitions>, 4> matrix{};
+        std::array<bool, 4> active{{true, true, true, true}};
     };
 
     // Iterative power-of-two complex FFT; inverse uses 1/N normalization.
@@ -59,6 +63,7 @@ public:
         const double sr=std::isfinite(sampleRate) && sampleRate>=8000.0 ? sampleRate : 44100.0;
         auto spectra = std::make_unique<std::array<std::array<Complex, designSize>, 4>>();
         bool solo=false;
+        bool hasCrossfeed=false;
         for (const auto& b:bands) solo |= b.enabled && b.solo;
         for (int bin=0; bin<=designSize/2; ++bin) {
             // Never query an IIR response above its frequency's Nyquist bin.
@@ -73,6 +78,10 @@ public:
                 }
                 magnitude[lane]=std::isfinite(m) ? std::clamp(m,0.0,32.0) : 1.0;
             }
+            // Magnitudes are the same for L/R with no cross routing, and for
+            // M/S if both processing lanes have the same EQ. In both cases
+            // the off-diagonal matrix FIRs are identically zero.
+            hasCrossfeed |= stereoMode != 0 && magnitude[0] != magnitude[1];
             const double matrix[4] = {
                 stereoMode==0 ? magnitude[0] : 0.5*(magnitude[0]+magnitude[1]),
                 stereoMode==0 ? 0.0 : 0.5*(magnitude[0]-magnitude[1]),
@@ -85,7 +94,14 @@ public:
                     (*spectra)[entry][designSize-(size_t)bin]=Complex(matrix[entry],0.0);
             }
         }
+        result.active = {{true, hasCrossfeed, hasCrossfeed, true}};
         for (int entry=0;entry<4;++entry) {
+            if (!result.active[(size_t)entry]) {
+                // Make the inactive coefficients deterministic for tests and
+                // debug inspection; process() skips these lanes entirely.
+                for (auto& stage : result.matrix[(size_t)entry]) stage.fill(Complex{});
+                continue;
+            }
             fft((*spectra)[entry],true);
             for (int part=0;part<partitions;++part) {
                 Spectrum stage{};
@@ -185,14 +201,20 @@ private:
             Spectrum result{};
             for (int src=0;src<2;++src) {
                 const int matrix=dst*2+src;
+                if (!kernel.active[(size_t)matrix]) continue;
                 for (int p=0;p<partitions;++p) {
                     const int index=(slot+partitions-p)%partitions;
                     const auto& x=inputSpectra[(size_t)src][(size_t)index];
                     const auto& h=kernel.matrix[(size_t)matrix][(size_t)p];
-                    for (int bin=0;bin<fftSize;++bin)
+                    // Input and kernel FFTs are conjugate-symmetric because
+                    // their time-domain blocks are real. Work only on the
+                    // non-redundant N/2+1 bins, then mirror before the IFFT.
+                    for (int bin=0;bin<=partition;++bin)
                         result[(size_t)bin] += x[(size_t)bin]*h[(size_t)bin];
                 }
             }
+            for (int bin=1;bin<partition;++bin)
+                result[(size_t)(fftSize-bin)] = std::conj(result[(size_t)bin]);
             fft(result,true);
             for (int i=0;i<partition;++i) {
                 const double prior=tails!=nullptr ? tails[dst][(size_t)i] : 0.0;

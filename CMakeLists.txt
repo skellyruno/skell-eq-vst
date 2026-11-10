@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SkellyEQ VERSION 2.5.0 LANGUAGES C CXX)
+project(SkellyEQ VERSION 2.6.0 LANGUAGES C CXX)
 include(FetchContent)
 if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
   add_subdirectory("${JUCE_PATH}" JUCE)
@@ -34,7 +34,7 @@ target_link_libraries(SkellyEQ PRIVATE SkellyAssets juce::juce_audio_utils juce:
 
 # Staged V1.5 restoration is selected by default. The proven v1.4 safe editor
 # remains selectable for FL Studio crash isolation without touching processor DSP.
-option(SKELLY_RESTORED_EDITOR "V2.5 linear-phase FIR + stereo-mode crossfading; safe editor preserved" ON)
+option(SKELLY_RESTORED_EDITOR "V2.6 FIR CPU optimization + safe editor preserved" ON)
 option(SKELLY_SAFE_EDITOR "Use safe controls editor (recommended for FL Studio)" ON)
 option(SKELLY_DIAGNOSTIC_EDITOR "Use a completely minimal diagnostic window" OFF)
 option(SKELLY_TRACE_LIFECYCLE "Log plugin load, state and editor lifecycle checkpoints" OFF)
@@ -58,4 +58,8 @@ if(SKELLY_BUILD_DSP_TESTS)
   target_compile_features(SkellyLinearPhaseTest PRIVATE cxx_std_17)
   target_include_directories(SkellyLinearPhaseTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests/juce_stub")
   add_test(NAME SkellyLinearPhaseTest COMMAND SkellyLinearPhaseTest)
+  add_executable(SkellyLinearReferenceTest tests/linear_phase_reference.cpp)
+  target_compile_features(SkellyLinearReferenceTest PRIVATE cxx_std_17)
+  target_include_directories(SkellyLinearReferenceTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests/juce_stub")
+  add_test(NAME SkellyLinearReferenceTest COMMAND SkellyLinearReferenceTest)
 endif()
