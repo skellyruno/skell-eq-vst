@@ -19,7 +19,26 @@ SkellyEQAudioProcessorEditor::SkellyEQAudioProcessorEditor(SkellyEQAudioProcesso
  amountKnob.setRange(0,100,.1);amountAttachment=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.state,"analyzeAmount",amountKnob);bindKnobs();
  auto init=[this](juce::TextButton& b,std::function<void()> fn){b.onClick=std::move(fn);addAndMakeVisible(b);b.setMouseCursor(juce::MouseCursor::PointingHandCursor);};
  init(licensed,[this]{juce::PopupMenu m;m.addItem(1,"Skelly EQ 1.0 — Skelly Audio");m.addItem(2,"Original JUCE EQ project");m.showMenuAsync(juce::PopupMenu::Options());});
- init(options,[this]{juce::PopupMenu m;m.addItem(1,"Graph: ±6 dB");m.addItem(2,"Graph: ±12 dB");m.addItem(3,"Graph: ±18 dB");m.addItem(4,"Graph: ±30 dB");juce::Component::SafePointer<SkellyEQAudioProcessorEditor> safe(this);m.showMenuAsync(juce::PopupMenu::Options(),[safe](int v){if(safe&&v>=1&&v<=4)safe->parameterSet("graphRange",(float)(v-1));});});
+ init(options,[this]{
+  juce::PopupMenu m;
+  m.addSectionHeader("GRAPH RANGE");
+  m.addItem(1,"Graph: ±6 dB");m.addItem(2,"Graph: ±12 dB");
+  m.addItem(3,"Graph: ±18 dB");m.addItem(4,"Graph: ±30 dB");
+  m.addSeparator();
+  m.addSectionHeader("SKELLWORLD / OPTIONAL PRESENCE");
+  m.addItem(50,worldLink.requested()?
+    (worldLink.hubOnline()?"Leave SkellWorld (connected)":"Leave SkellWorld (hub offline)"):
+    "Join SkellWorld (presence only)");
+  juce::Component::SafePointer<SkellyEQAudioProcessorEditor> safe(this);
+  m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&options),[safe](int v){
+    if(!safe)return;
+    if(v>=1&&v<=4)safe->parameterSet("graphRange",(float)(v-1));
+    else if(v==50) {
+      if(safe->worldLink.requested())safe->worldLink.leave();
+      else safe->worldLink.join(); // never the audio callback
+    }
+  });
+});
  init(ab,[this]{processor.storeSnapshot(abSlot);abSlot=1-abSlot;processor.loadSnapshot(abSlot);ab.setButtonText(abSlot?"B | A":"A | B");});
  init(nextPreset,[this]{juce::PopupMenu m;m.addItem(1,"Flat");m.addItem(2,"Original contour");juce::Component::SafePointer<SkellyEQAudioProcessorEditor> safe(this);m.showMenuAsync(juce::PopupMenu::Options(),[safe](int v){if(!safe||!v)return;const float gains[]={1,-2,-4,-3,-11,-2,7,-1.5f};for(int i=0;i<8;++i)safe->parameterSet(selectedId(i,"gain"),v==1?0.f:gains[i]);});});
  init(previous,[this]{selectBand((selected+7)%8);});init(next,[this]{selectBand((selected+1)%8);});

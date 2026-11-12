@@ -8,6 +8,7 @@
 #include "ui/IconToggle.h"
 #include "ui/HeaderBar.h"
 #include "ui/LookAndFeel.h"
+#include <SkellCore/WorldLink.h>
 class SkellyEQAudioProcessorEditor final:public juce::AudioProcessorEditor,private juce::Timer {
 public:
  explicit SkellyEQAudioProcessorEditor(SkellyEQAudioProcessor&);~SkellyEQAudioProcessorEditor() override;
@@ -17,6 +18,8 @@ private:
  void selectBand(int);void parameterSet(const juce::String&,float);
  void bindKnobs();
  SkellyEQAudioProcessor& processor;SkellyLookAndFeel look;
+ // Editor-scoped connection, opt-in via OPTION menu only, never DSP.
+ skellcore::world::WorldLink worldLink{"skell.eq","Skelly EQ"};
  int selected=0,abSlot=0;
  EqGraph graph;MeterPanel meter;HeaderBar header;
  BandKnob freqKnob,gainKnob,qKnob,amountKnob;
