@@ -51,6 +51,6 @@ See `V270_RELEASE_NOTES.md` for the latest implementation notes and `HISTORY_V1_
 
 ## Optional SkellWorld presence
 
-Open **OPTION → Join SkellWorld (presence only)** to show this Skelly EQ editor instance in the local SkellWorld dashboard, if the hub is running. To disconnect choose **OPTION → Leave SkellWorld**. This is **off by default**, disconnects when the editor closes, and does not affect the EQ audio thread, latency, APVTS parameter IDs or saved presets. The WorldLink lives on its own thread and sends only product ID, display name, and temporary instance ID—never audio, EQ curve settings or files.
+Open **v2.7 badge → Join SkellWorld (presence only)** to show this Skelly EQ editor instance in the local SkellWorld dashboard, if the hub is running. To disconnect choose **v2.7 badge → Leave SkellWorld**. This is **off by default**, disconnects when the editor closes, and does not affect the EQ audio thread, latency, APVTS parameter IDs or saved presets. The WorldLink lives on its own thread and sends only product ID, display name, and temporary instance ID—never audio, EQ curve settings or files.
 
 This is a source integration pilot requiring Windows VST3 CI and FL Studio host validation.
