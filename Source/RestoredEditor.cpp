@@ -762,9 +762,26 @@ SkellyEQRestoredEditor::SkellyEQRestoredEditor(SkellyEQAudioProcessor& p)
                     &saveA, &loadA, &saveB, &loadB})
         addAndMakeVisible(*b);
     enabled.setColour(juce::ToggleButton::textColourId, bright);
-    about.setTooltip("Skelly EQ 2.7 | Clean phase switching + linear FIR");
+    about.setTooltip("v2.7 / About / optional SkellWorld connection");
     about.setButtonText("v2.7");
-    about.setEnabled(false); // Don't open host-modal dialogs on plugin close.
+    // Async pop-up only. The old RANGE button continues to cycle graph dB.
+    about.setEnabled(true);
+    about.onClick = [this] {
+        juce::PopupMenu menu;
+        menu.addSectionHeader("SKELLY EQ 2.7 / WORLD");
+        menu.addItem(50, worldLink.requested() ?
+            (worldLink.hubOnline() ? "Leave SkellWorld (connected)" : "Leave SkellWorld (hub offline)") :
+            "Join SkellWorld (presence only)");
+        menu.addSeparator();
+        menu.addItem(51, "EQ audio and settings remain local", false);
+        juce::Component::SafePointer<SkellyEQRestoredEditor> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&about),
+            [safe](int choice) {
+                if (safe == nullptr || choice != 50) return;
+                if (safe->worldLink.requested()) safe->worldLink.leave();
+                else safe->worldLink.join(); // worker thread only; audio unchanged
+            });
+    };
     options.setTooltip("Cycle graph dB display range");
     options.onClick = [this]
     {
@@ -880,6 +897,7 @@ SkellyEQRestoredEditor::~SkellyEQRestoredEditor()
     graph.onSelection = nullptr;
     bandSelect.onChange = nullptr;
     options.onClick = nullptr;
+    about.onClick = nullptr;
     previous.onClick = nullptr;
     next.onClick = nullptr;
     resetCurve.onClick = nullptr;

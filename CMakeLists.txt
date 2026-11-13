@@ -7,6 +7,15 @@ else()
   FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git GIT_TAG 8.0.12 GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(JUCE)
 endif()
+# Shared, header-only opt-in SkellWorld presence; pinned dependency does not
+# update the EQ DSP, plugin identity or existing VST3 CMake targets.
+FetchContent_Declare(SkellWorldPresenceHeaders
+  GIT_REPOSITORY https://github.com/skellyruno/skellcore-vst-template.git
+  GIT_TAG c4ae09c896fa84279d3cc42f19925f97a7e5c124
+  GIT_SHALLOW FALSE
+  SOURCE_SUBDIR _world_presence_headers_only)
+FetchContent_MakeAvailable(SkellWorldPresenceHeaders)
+
 # Explicit absolute asset paths keep JUCE's resource target deterministic when
 # configured in out-of-source Windows CI directories.
 set(SKELLY_ASSET_FILES
@@ -27,6 +36,7 @@ juce_add_plugin(SkellyEQ COMPANY_NAME "Skelly Audio" BUNDLE_ID "audio.skelly.eq"
 juce_generate_juce_header(SkellyEQ)
 file(GLOB_RECURSE SKELLY_SOURCES CONFIGURE_DEPENDS "Source/*.cpp" "Source/*.h")
 target_sources(SkellyEQ PRIVATE ${SKELLY_SOURCES})
+target_include_directories(SkellyEQ PRIVATE "${skellworldpresenceheaders_SOURCE_DIR}/SkellCore/include")
 target_compile_features(SkellyEQ PRIVATE cxx_std_17)
 target_compile_definitions(SkellyEQ PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
 target_compile_definitions(SkellyEQ PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)

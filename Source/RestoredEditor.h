@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include <SkellCore/WorldLink.h>
 #include <memory>
 
 // V2.0 editor: custom JUCE-painted widgets, message-thread FFT, and safe teardown.
@@ -31,6 +32,8 @@ private:
     } look;
 
     SkellyEQAudioProcessor& processor;
+    // UI/worker only: no EQ DSP or APVTS modifications.
+    skellcore::world::WorldLink worldLink{"skell.eq","Skelly EQ"};
     int selectedBand = 0;
 
     class ResponseGraph final : public juce::Component, public juce::SettableTooltipClient

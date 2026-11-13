@@ -1,0 +1,11 @@
+{
+  "schema": "skellworld-plugin/1",
+  "product_id": "skell.eq",
+  "display_name": "Skelly EQ",
+  "connection": "explicit-opt-in-loopback",
+  "capabilities": [
+    "presence"
+  ],
+  "source_repository": "skellyruno/skell-eq-vst",
+  "note": "OPTION > Join SkellWorld; only presence. No EQ bands, parameters, presets, audio or files transferred."
+}
