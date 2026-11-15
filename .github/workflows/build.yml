@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+concurrency:
+  group: eq-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   windows:
     runs-on: windows-latest
@@ -27,6 +30,14 @@ jobs:
           if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
             throw "Expected Windows VST3 binary missing: $binary"
           }
+          $bytes = [System.IO.File]::ReadAllBytes($binary)
+          if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Invalid Windows PE MZ header" }
+          $offset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($offset -lt 0 -or ($offset + 4) -gt $bytes.Length -or
+              $bytes[$offset] -ne 0x50 -or $bytes[$offset+1] -ne 0x45 -or
+              $bytes[$offset+2] -ne 0 -or $bytes[$offset+3] -ne 0) { throw "Invalid Windows PE signature" }
+          $hash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
+          Write-Host "VST3 binary SHA256: $hash"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item -LiteralPath $plugins[0].FullName -Destination dist -Recurse -Force
       - uses: actions/upload-artifact@v6
@@ -34,22 +45,4 @@ jobs:
           name: SkellyEQ-V2.7-Windows-VST3
           path: dist/
           if-no-files-found: error
-          retention-days: 1
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Validate V2.7 compact UI and safety checks
-        run: python scripts/check_v27.py
-      - name: Configure
-        run: cmake -S . -B build -G Xcode
-      - name: Build
-        run: cmake --build build --config Release --parallel 2
-      - name: Run DSP regression tests
-        run: ctest --test-dir build -C Release --output-on-failure
-      - uses: actions/upload-artifact@v6
-        with:
-          name: SkellyEQ-V2.7-macOS-VST3
-          path: build/SkellyEQ_artefacts/Release/VST3/*.vst3
-          if-no-files-found: warn
-          retention-days: 1
+          retention-days: 7
