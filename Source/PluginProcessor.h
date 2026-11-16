@@ -19,7 +19,7 @@ public:
         ? double(SkellyDSP::StereoLinearFIR::impulseSize)/sampleRateHz() : 0.0;
  }
  int getNumPrograms() override{return 1;}int getCurrentProgram() override{return 0;}void setCurrentProgram(int) override{}
- const juce::String getProgramName(int) override{return {}; }void changeProgramName(int,const juce::String&) override{}
+ const juce::String getProgramName(int) override { return juce::String("Default"); }void changeProgramName(int,const juce::String&) override{}
  void getStateInformation(juce::MemoryBlock&) override;void setStateInformation(const void*,int) override;
  static juce::AudioProcessorValueTreeState::ParameterLayout makeParameters();
  juce::AudioProcessorValueTreeState state{*this,nullptr,"PARAMETERS",makeParameters()};
