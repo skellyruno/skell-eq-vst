@@ -1,6 +1,6 @@
 # Skelly EQ V2.7
 
-Skelly EQ is an eight-band JUCE 8 VST3/Standalone parametric equalizer with a resizable **1070×529** neon-green skull interface, a 4096-point real-time visual analyzer, L/R and Mid/Side band routing, A/B snapshots and host-automatable controls. The plugin identifiers, automation IDs and state format are preserved from earlier versions. The FIR streaming history is cleared when returning from the minimum-phase engine, preventing replay of old buffered audio.
+Skelly EQ is an eight-band JUCE 8 Windows VST3 parametric equalizer with a resizable **1070×529** neon-green skull interface, a 4096-point real-time visual analyzer, L/R and Mid/Side band routing, A/B snapshots and host-automatable controls. The plugin identifiers, automation IDs and state format are preserved from earlier versions. The FIR streaming history is cleared when returning from the minimum-phase engine, preventing replay of old buffered audio.
 
 ## Audio paths
 
@@ -19,7 +19,7 @@ c++ -O2 -std=c++17 -I tests/juce_stub tests/linear_phase.cpp -o skelly_linear &&
 c++ -O2 -std=c++17 -I tests/juce_stub tests/linear_phase_reference.cpp -o skelly_reference && ./skelly_reference
 ```
 
-The reference test checks the FIR's actual stereo output against independent direct convolution, frequency response, and PDC timing across **44.1/48/96 kHz** in both L/R and M/S modes. The Windows/macOS GitHub Actions workflow builds the plugin and runs all three tests, including the FIR re-entry regression. The Windows artifact includes one VST3 bundle instead of a ZIP nested inside another ZIP.
+The reference test checks the FIR's actual stereo output against independent direct convolution, frequency response, and PDC timing across **44.1/48/96 kHz** in both L/R and M/S modes. The Windows GitHub Actions workflow builds the plugin and runs all three tests, including the FIR re-entry regression. The Windows artifact includes one VST3 bundle instead of a ZIP nested inside another ZIP.
 
 ## Windows build
 
@@ -29,25 +29,9 @@ cmake --build build --config Release --parallel 2
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-## macOS build
+## Release format
 
-```sh
-cmake -S . -B build -G Xcode -DJUCE_PATH=/path/to/JUCE
-cmake --build build --config Release --parallel 2
-ctest --test-dir build -C Release --output-on-failure
-```
-
-If `JUCE_PATH` is omitted, CMake fetches the pinned JUCE **8.0.12** source. The Windows VST3 normally builds beneath `build/SkellyEQ_artefacts/Release/VST3/`.
-
-To isolate crashes, configure `-DSKELLY_RESTORED_EDITOR=OFF -DSKELLY_SAFE_EDITOR=ON` for the simplified editor, or `-DSKELLY_DIAGNOSTIC_EDITOR=ON` for the minimal diagnostic UI. The restored editor is the normal default.
-
-## Current limitations and safety
-
-- The fixed-length linear-phase FIR approximates very narrow/low-frequency filters, particularly at 96 kHz. Its latency changes when switching phase modes; FL Studio might resynchronize and cannot be guaranteed glitch-free in all host situations.
-- Source-level UI geometry tests and successful CI builds do **not** prove in-host graphical behavior, automation timing or FL Studio open/close stability. Verify those in a blank FL Studio project before relying on the new VST3 in production.
-- Keep your last working VST3 as a rollback. Re-scan after replacing the plugin to avoid duplicate versions.
-
-See `V270_RELEASE_NOTES.md` for the latest implementation notes and `HISTORY_V1_X.md` / `V2xx_RELEASE_NOTES.md` for prior decisions and fixes.
+The supported distributable is one Windows x64 VST3 bundle. CMake intentionally produces VST3 only; Standalone and macOS targets are not part of this release line. The Windows release workflow normalizes JUCE-generated moduleinfo.json to strict JSON, checks plugin identity and class IDs, verifies the PE32+ AMD64 binary, runs pluginval strictness 5, and publishes a flat bundle with SHA-256 provenance. CI artifacts remain preview-only until FL Studio, real audio A/B, target-hardware CPU/latency, licensing/support and rollback gates are accepted.
 
 ## Optional SkellWorld presence
 
