@@ -38,3 +38,7 @@ The supported distributable is one Windows x64 VST3 bundle. CMake intentionally 
 Open **v2.7 badge → Join SkellWorld (presence only)** to show this Skelly EQ editor instance in the local SkellWorld dashboard, if the hub is running. To disconnect choose **v2.7 badge → Leave SkellWorld**. This is **off by default**, disconnects when the editor closes, and does not affect the EQ audio thread, latency, APVTS parameter IDs or saved presets. The WorldLink lives on its own thread and sends only product ID, display name, and temporary instance ID—never audio, EQ curve settings or files.
 
 This is a source integration pilot requiring Windows VST3 CI and FL Studio host validation.
+
+## Windows state regression test
+
+The Windows VST3 release configuration enables `SKELLY_BUILD_STATE_TESTS` by default. CTest runs `SkellyEQStateRoundtrip` against the real processor/editor sources to verify A/B snapshot save/load, host-state round trips, selected-band persistence, repeated-save replacement, legacy-state compatibility, and malformed snapshot sanitization. This regression gate is separate from pluginval and does not replace FL Studio acceptance.
