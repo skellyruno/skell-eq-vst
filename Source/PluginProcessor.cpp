@@ -19,12 +19,12 @@ bool parseFiniteStateNumber(const juce::var& source, float& output) noexcept
     if (text.isEmpty())
         return false;
 
-    auto cursor = text.toRawUTF8();
+    const char* cursor = text.toRawUTF8();
     if (*cursor == '+' || *cursor == '-')
         ++cursor;
 
     bool hasDigits = false;
-    const auto isDigit = [](juce_wchar c) noexcept { return c >= '0' && c <= '9'; };
+    const auto isDigit = [](char c) noexcept { return c >= '0' && c <= '9'; };
     while (isDigit(*cursor))
     {
         hasDigits = true;
@@ -56,7 +56,7 @@ bool parseFiniteStateNumber(const juce::var& source, float& output) noexcept
         if (!exponentHasDigits)
             return false;
     }
-    if (!cursor.isEmpty())
+    if (*cursor != '\0')
         return false;
 
     const double parsed = text.getDoubleValue();
