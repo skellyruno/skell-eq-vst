@@ -6,6 +6,69 @@
 #include <cmath>
 #include <thread>
 using namespace SkellyDSP;
+
+namespace
+{
+// ValueTree XML attributes are strings. JUCE 8.0.12's String::getDoubleValue()
+// accepts numeric prefixes and returns 0 for empty/invalid text, so a finite
+// cast alone can silently turn malformed preset values into parameter minima.
+// Validate the complete decimal/exponent grammar before using JUCE's parser.
+bool parseFiniteStateNumber(const juce::var& source, float& output) noexcept
+{
+    const auto text = source.toString().trim();
+    if (text.isEmpty())
+        return false;
+
+    auto cursor = text.toRawUTF8();
+    if (*cursor == '+' || *cursor == '-')
+        ++cursor;
+
+    bool hasDigits = false;
+    const auto isDigit = [](juce_wchar c) noexcept { return c >= '0' && c <= '9'; };
+    while (isDigit(*cursor))
+    {
+        hasDigits = true;
+        ++cursor;
+    }
+    if (*cursor == '.')
+    {
+        ++cursor;
+        while (isDigit(*cursor))
+        {
+            hasDigits = true;
+            ++cursor;
+        }
+    }
+    if (!hasDigits)
+        return false;
+
+    if (*cursor == 'e' || *cursor == 'E')
+    {
+        ++cursor;
+        if (*cursor == '+' || *cursor == '-')
+            ++cursor;
+        bool exponentHasDigits = false;
+        while (isDigit(*cursor))
+        {
+            exponentHasDigits = true;
+            ++cursor;
+        }
+        if (!exponentHasDigits)
+            return false;
+    }
+    if (!cursor.isEmpty())
+        return false;
+
+    const double parsed = text.getDoubleValue();
+    const float narrowed = static_cast<float>(parsed);
+    if (!std::isfinite(parsed) || !std::isfinite(narrowed))
+        return false;
+
+    output = narrowed;
+    return true;
+}
+} // namespace
+
 static juce::String id(int i,const char* n){return "b"+juce::String(i+1)+"_"+n;}
 SkellyEQAudioProcessor::SkellyEQAudioProcessor()
     : AudioProcessor(BusesProperties().withInput("Input", juce::AudioChannelSet::stereo(), true)
@@ -439,8 +502,8 @@ void SkellyEQAudioProcessor::setStateInformation(const void* data, int bytes)
         if (parameter == nullptr || ! child.hasProperty("value"))
             continue;
 
-        const auto rawValue = (float) child.getProperty("value");
-        if (! std::isfinite(rawValue))
+        float rawValue = 0.0f;
+        if (!parseFiniteStateNumber(child.getProperty("value"), rawValue))
             continue;
         const auto normalized = parameter->convertTo0to1(rawValue);
         if (! std::isfinite(normalized))
@@ -473,8 +536,8 @@ void SkellyEQAudioProcessor::setStateInformation(const void* data, int bytes)
             const auto paramId = node.getProperty("id").toString();
             if (auto* parameter = state.getParameter(paramId))
             {
-                const float raw = (float)node.getProperty("value");
-                if (!std::isfinite(raw)) continue;
+                float raw = 0.0f;
+                if (!parseFiniteStateNumber(node.getProperty("value"), raw)) continue;
                 const float norm = parameter->convertTo0to1(raw);
                 if (!std::isfinite(norm)) continue;
                 juce::ValueTree safe {juce::Identifier("PARAM")};
@@ -520,8 +583,8 @@ void SkellyEQAudioProcessor::loadSnapshot(int slot)
         const auto paramId = node.getProperty("id").toString();
         if (auto* target = state.getParameter(paramId))
         {
-            const float value = (float)node.getProperty("value");
-            if (!std::isfinite(value)) continue;
+            float value = 0.0f;
+            if (!parseFiniteStateNumber(node.getProperty("value"), value)) continue;
             const float normalized = target->convertTo0to1(value);
             if (!std::isfinite(normalized)) continue;
             target->beginChangeGesture();

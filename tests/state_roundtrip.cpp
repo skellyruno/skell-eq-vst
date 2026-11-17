@@ -231,7 +231,36 @@ int main()
     nonFinite.setProperty("value", std::numeric_limits<double>::quiet_NaN(), nullptr);
     malformedA.addChild(nonFinite, -1, nullptr);
 
+    // Valid decimal strings survive XML restoration; empty strings and numeric
+    // prefixes with trailing text must be rejected rather than parsed as 0/1500.
+    juce::ValueTree numericString {juce::Identifier("PARAM")};
+    numericString.setProperty("id", "b1_freq", nullptr);
+    numericString.setProperty("value", "1500.5", nullptr);
+    malformedA.addChild(numericString, -1, nullptr);
+
+    juce::ValueTree emptySnapshotValue {juce::Identifier("PARAM")};
+    emptySnapshotValue.setProperty("id", "b1_q", nullptr);
+    emptySnapshotValue.setProperty("value", "", nullptr);
+    malformedA.addChild(emptySnapshotValue, -1, nullptr);
+
+    juce::ValueTree trailingSnapshotValue {juce::Identifier("PARAM")};
+    trailingSnapshotValue.setProperty("id", "b1_freq", nullptr);
+    trailingSnapshotValue.setProperty("value", "1500Hz", nullptr);
+    malformedA.addChild(trailingSnapshotValue, -1, nullptr);
+
     malformedTree.addChild(malformedA, -1, nullptr);
+
+    // Root PARAM duplicates with malformed values must not overwrite the
+    // previously valid legacy state with JUCE's permissive zero conversion.
+    juce::ValueTree malformedRootGain {juce::Identifier("PARAM")};
+    malformedRootGain.setProperty("id", "b1_gain", nullptr);
+    malformedRootGain.setProperty("value", "not-a-number", nullptr);
+    malformedTree.addChild(malformedRootGain, -1, nullptr);
+
+    juce::ValueTree malformedRootQ {juce::Identifier("PARAM")};
+    malformedRootQ.setProperty("id", "b1_q", nullptr);
+    malformedRootQ.setProperty("value", "", nullptr);
+    malformedTree.addChild(malformedRootQ, -1, nullptr);
     auto malformedXml = malformedTree.createXml();
     require(malformedXml != nullptr, "malformed test state creates XML");
     juce::MemoryBlock malformedBlock;
@@ -245,6 +274,12 @@ int main()
     require(sanitizedA.isValid(), "sanitized snapshot A is retained");
     require(!findSnapshot(restoredTree, "snapshotB").isValid(),
             "missing snapshot B is not synthesized");
+    expectNear(currentValue(restored, "b1_gain"), 3.0f, 0.02f,
+               "malformed root numeric string cannot overwrite valid legacy gain");
+    expectNear(currentValue(restored, "b1_q"), 1.0f, 0.02f,
+               "empty root numeric string cannot reset valid legacy Q");
+    expectNear(snapshotValue(sanitizedA, "b1_freq"), 1500.5f, 0.1f,
+               "valid decimal-string snapshot value survives restore");
     bool sawClampedGain = false;
     for (int i = 0; i < sanitizedA.getNumChildren(); ++i)
     {
@@ -268,6 +303,16 @@ int main()
         }
     }
     require(sawClampedGain, "out-of-range gain parameter is retained safely");
+
+    // The editor-facing snapshot load path must apply the same strict parser.
+    juce::ValueTree malformedLoad {juce::Identifier("PARAM")};
+    malformedLoad.setProperty("id", "b1_q", nullptr);
+    malformedLoad.setProperty("value", "garbage", nullptr);
+    restored.state.state.getChildWithName(juce::Identifier("snapshotA"))
+        .addChild(malformedLoad, -1, nullptr);
+    restored.loadSnapshot(0);
+    expectNear(currentValue(restored, "b1_q"), 1.0f, 0.02f,
+               "malformed snapshot value is ignored when loading A");
 
     std::cout << "Skelly EQ A/B host-state roundtrip and malformed-state checks PASS\n";
     return 0;
