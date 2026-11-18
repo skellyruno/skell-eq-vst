@@ -114,9 +114,10 @@ def normalize_moduleinfo_file(path: Path) -> tuple[dict[str, Any], list[str], bo
 
 
 def self_test() -> None:
+    escaped_quote_sample = '{"literal":"escaped ' + chr(92) + '" quote, }",}'
     samples = [
         ('{"value":[1,2,],"text":"literal ,} ,] here",}', {"value": [1, 2], "text": "literal ,} ,] here"}),
-        (r'{"literal":"escaped \\" quote, }",}', {"literal": 'escaped " quote, }'}),
+        (escaped_quote_sample, {"literal": 'escaped " quote, }'}),
         ('{"valid":[1,2],"next":true}', {"valid": [1, 2], "next": True}),
     ]
     for source, expected in samples:
