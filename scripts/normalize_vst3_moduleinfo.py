@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import tempfile
 from pathlib import Path
@@ -19,6 +20,13 @@ def _reject_non_finite(token: str) -> None:
     raise ValueError(f"Non-standard JSON numeric constant is not allowed: {token}")
 
 
+def _finite_float(token: str) -> float:
+    value = float(token)
+    if not math.isfinite(value):
+        raise ValueError(f"JSON number overflows to a non-finite float: {token}")
+    return value
+
+
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -29,11 +37,12 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def strict_json_loads(source: str) -> Any:
-    """Parse standard JSON while rejecting duplicate keys and NaN/Infinity."""
+    """Parse standard JSON while rejecting duplicate keys and non-finite numbers."""
     return json.loads(
         source,
         object_pairs_hook=_unique_object,
         parse_constant=_reject_non_finite,
+        parse_float=_finite_float,
     )
 
 
@@ -129,6 +138,8 @@ def self_test() -> None:
         ('{"optional":NaN}', "NaN"),
         ('{"optional":Infinity}', "Infinity"),
         ('{"optional":-Infinity}', "-Infinity"),
+        ('{"optional":1e999}', "positive exponent overflow"),
+        ('{"optional":-1e999}', "negative exponent overflow"),
         ('{"Name":"Skelly EQ","Name":"Skelly EQ"}', "duplicate top-level key"),
         ('{"nested":{"Vendor":"Skelly Audio","Vendor":"Other"}}', "duplicate nested key"),
     ]
@@ -152,15 +163,15 @@ def self_test() -> None:
     }
     with tempfile.TemporaryDirectory(prefix="skelly-eq-moduleinfo-test-") as temp_dir:
         path = Path(temp_dir) / "moduleinfo.json"
-        for invalid_constant in ("NaN", "Infinity", "-Infinity"):
-            source = json.dumps(valid_metadata, separators=(",", ":"))[:-1] + ', "optional":' + invalid_constant + "}"
+        for invalid_number in ("NaN", "Infinity", "-Infinity", "1e999", "-1e999"):
+            source = json.dumps(valid_metadata, separators=(",", ":"))[:-1] + ', "optional":' + invalid_number + "}"
             path.write_text(source, encoding="utf-8")
             try:
                 normalize_moduleinfo_file(path)
             except ValueError:
                 pass
             else:
-                raise AssertionError(f"Invalid metadata containing {invalid_constant} was accepted")
+                raise AssertionError(f"Invalid metadata containing {invalid_number} was accepted")
             if path.read_text(encoding="utf-8") != source:
                 raise AssertionError("Rejected metadata was modified on disk")
 
@@ -180,7 +191,7 @@ def self_test() -> None:
         if path.read_text(encoding="utf-8") != duplicate_source:
             raise AssertionError("Duplicate-key metadata was modified on disk")
 
-    print("PASS: string-aware normalization, duplicate-key rejection, non-finite rejection, and no-write-on-invalid tests")
+    print("PASS: string-aware normalization, duplicate-key rejection, non-finite rejection, exponent-overflow rejection, and no-write-on-invalid tests")
 
 
 def main() -> None:
