@@ -1,0 +1,49 @@
+SKELLY EQ 2.7.0 — WINDOWS x64 VST3 PRIVATE PREVIEW
+===================================================
+This package is an unsigned engineering preview, not a signed installer or
+commercial release. Use a disposable DAW project for first host testing.
+
+DEFAULT PER-USER LOCATION
+%LOCALAPPDATA%\Programs\Common\VST3\Skelly EQ.vst3
+
+REQUIREMENTS
+- Windows 10/11 x64.
+- PowerShell 7.
+- No administrator rights, registry edits, or system-wide installation.
+- No DAW restart, automatic scan, or background updater is performed.
+
+INSTALL / UPDATE
+1. Extract the complete ZIP to a normal folder.
+2. Open PowerShell 7 in that folder.
+3. Preview the package checks and destination:
+     .\Install-SkellyEQ.ps1 -PackageRoot . -WhatIf
+4. If the preview is correct, run:
+     .\Install-SkellyEQ.ps1 -PackageRoot .
+5. Approve the confirmation prompt. A valid existing Skelly EQ bundle is copied
+   to a timestamped backup and verified before it is replaced.
+6. Keep the backup_path printed by the script.
+7. Restart/rescan the DAW manually. Test in a disposable project first.
+
+ROLLBACK
+Use the exact backup_path printed by the installer:
+     .\Install-SkellyEQ.ps1 -RollbackFrom "C:\path\to\Skelly-EQ-backup"
+
+The helper validates both SHA-256 manifests, exact package file coverage,
+product/vendor/version, the two protected VST3 class IDs, strict module metadata,
+AMD64 PE32+ architecture, bundle hashes and backup integrity. It refuses
+checksum tampering, unsafe manifest paths, duplicate entries, reparse points,
+invalid existing targets and unexpected package files. It stages and verifies
+the new bundle before replacement, backs up the old bundle, and restores the
+previous directory if the swap or post-install verification fails.
+
+The helper does not change EQ parameters, presets, A/B snapshots, automation
+IDs, serialized host state, FL Studio projects or registry entries. It does not
+delete verified backups. SHA-256 manifests detect accidental corruption; they
+are not digital signatures and do not prove publisher identity.
+
+UNVERIFIED RELEASE GATES
+FL Studio scan/load, state and preset recall, automation playback, old-project
+compatibility, real musical A/B, owner listening approval, target-hardware
+CPU/latency, vendor URL/support email, third-party licensing, code signing and
+commercial release approval remain separate gates. Do not treat CI success as
+host acceptance or commercial release approval.

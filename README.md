@@ -33,6 +33,25 @@ ctest --test-dir build -C Release --output-on-failure
 
 The supported distributable is one Windows x64 VST3 bundle. CMake intentionally produces VST3 only; Standalone and macOS targets are not part of this release line. The Windows release workflow normalizes JUCE-generated moduleinfo.json to strict JSON, checks plugin identity and class IDs, verifies the PE32+ AMD64 binary, runs pluginval strictness 5, and publishes a flat bundle with SHA-256 provenance. CI artifacts remain preview-only until FL Studio, real audio A/B, target-hardware CPU/latency, licensing/support and rollback gates are accepted.
 
+## Private preview install and rollback
+
+The Windows VST3 preview artifact includes a per-user PowerShell installer,
+SHA-256 manifests, build provenance, release notes and a third-party license
+status inventory. Extract the full ZIP, then run:
+
+```powershell
+.\Install-SkellyEQ.ps1 -PackageRoot . -WhatIf
+.\Install-SkellyEQ.ps1 -PackageRoot .
+```
+
+The default destination is `%LOCALAPPDATA%\Programs\Common\VST3`; no
+administrator rights, registry edits or background updater are used. A valid
+existing bundle is backed up and verified before replacement. Use the returned
+`backup_path` with `-RollbackFrom` to restore it. Keep the ZIP and all manifest
+files together. The package is unsigned and preview-only; FL Studio, musical
+A/B, licensing, vendor contact, target-hardware and commercial approval gates
+remain open.
+
 ## Optional SkellWorld presence
 
 Open **v2.7 badge → Join SkellWorld (presence only)** to show this Skelly EQ editor instance in the local SkellWorld dashboard, if the hub is running. To disconnect choose **v2.7 badge → Leave SkellWorld**. This is **off by default**, disconnects when the editor closes, and does not affect the EQ audio thread, latency, APVTS parameter IDs or saved presets. The WorldLink lives on its own thread and sends only product ID, display name, and temporary instance ID—never audio, EQ curve settings or files.

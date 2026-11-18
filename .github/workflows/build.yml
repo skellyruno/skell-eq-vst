@@ -141,7 +141,9 @@ jobs:
               'FL Studio scan, automation, save/reopen and old-project compatibility are not yet accepted',
               'Real music VST3 A/B and user listening approval are pending',
               'Vendor URL and support email are empty in moduleinfo.json',
-              'Target Windows hardware CPU/latency and preset rollback are not yet accepted'
+              'Target Windows hardware CPU/latency and preset rollback are not yet accepted',
+              'Third-party licensing, asset attribution, code signing and commercial release approval are pending',
+              'Vendor URL and support email remain owner-supplied release metadata'
             )
           }
           $manifestPath = Join-Path $PWD 'release-package/build-info.json'
@@ -149,6 +151,81 @@ jobs:
           $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
           Add-Content -LiteralPath (Join-Path $PWD 'release-package/SHA256SUMS.txt') -Value "$manifestHash  build-info.json" -Encoding ascii
           Write-Host 'Release provenance written after Windows build, CTest and pluginval strictness 5 passed.'
+
+      - name: Add private-preview installer, notices and release manifests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $PWD 'release-package'
+          $toolNames = @('Install-SkellyEQ.ps1', 'INSTALL-WINDOWS.txt', 'THIRD-PARTY-LICENSE-STATUS.txt')
+          foreach ($name in $toolNames) {
+            Copy-Item -LiteralPath (Join-Path 'release' $name) -Destination (Join-Path $stage $name) -Force
+          }
+          Copy-Item -LiteralPath 'V270_RELEASE_NOTES.md' -Destination (Join-Path $stage 'RELEASE-NOTES.txt') -Force
+          $previewText = @'
+SKELLY EQ 2.7.0 — PRIVATE WINDOWS VST3 PREVIEW
+This package is unsigned and preview-only; it is not a commercial release.
+Use a disposable DAW project. Keep the previous VST3 and the generated backup.
+FL Studio host acceptance, real musical A/B, target-hardware CPU/latency,
+licensing/attribution, vendor contact metadata and owner approval remain open.
+SHA-256 manifests detect accidental corruption; they are not digital signatures.
+'@
+          [System.IO.File]::WriteAllText((Join-Path $stage 'PREVIEW-ONLY.txt'), $previewText, [System.Text.UTF8Encoding]::new($false))
+
+          $bundle = Join-Path $stage 'Skelly EQ.vst3'
+          $binary = Join-Path $bundle 'Contents/x86_64-win/Skelly EQ.vst3'
+          $info = Join-Path $bundle 'Contents/Resources/moduleinfo.json'
+          $metadata = [System.IO.File]::ReadAllText($info) | ConvertFrom-Json -ErrorAction Stop
+          $binaryHash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          $metadataHash = (Get-FileHash -LiteralPath $info -Algorithm SHA256).Hash.ToLowerInvariant()
+          $classIds = @($metadata.Classes | ForEach-Object { [string]$_.CID } | Sort-Object)
+          $verification = [ordered]@{
+            schema_version = 1
+            product = 'Skelly EQ'
+            vendor = 'Skelly Audio'
+            version = [string]$metadata.Version
+            source_moduleinfo_sha256 = $metadataHash
+            staged_moduleinfo_sha256 = $metadataHash
+            staged_moduleinfo_bytes = (Get-Item -LiteralPath $info).Length
+            class_ids = $classIds
+          }
+          $verification | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $stage 'Skelly-EQ-moduleinfo-verification.json') -Encoding utf8
+          [System.IO.File]::WriteAllText((Join-Path $stage 'Skelly-EQ-Windows-VST3.sha256'), ("$binaryHash  Skelly EQ.vst3/Contents/x86_64-win/Skelly EQ.vst3" + [Environment]::NewLine), [System.Text.Encoding]::ASCII)
+          $manifestLines = @(
+            'Product: Skelly EQ'
+            "Version: $($metadata.Version)"
+            'Format: VST3'
+            'Platform: Windows x86_64'
+            "Source head commit: $env:SOURCE_COMMIT"
+            "Tested workflow commit: $env:GITHUB_SHA"
+            "Workflow run ID: $env:GITHUB_RUN_ID"
+            "Binary SHA-256: $binaryHash"
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $stage 'Skelly-EQ-Windows-VST3-manifest.txt'), [string[]]$manifestLines, [System.Text.Encoding]::UTF8)
+
+          $toolLines = foreach ($name in $toolNames) {
+            $file = Join-Path $stage $name
+            $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name"
+          }
+          [System.IO.File]::WriteAllLines((Join-Path $stage 'TOOLS-SHA256SUMS.txt'), [string[]]$toolLines, [System.Text.Encoding]::ASCII)
+
+          $excluded = @('SHA256SUMS.txt', 'TOOLS-SHA256SUMS.txt') + $toolNames
+          $mainFiles = @(Get-ChildItem -LiteralPath $stage -Recurse -File -Force | Where-Object {
+            $relative = $_.FullName.Substring($stage.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+            $relative -notin $excluded
+          } | Sort-Object FullName)
+          $mainLines = foreach ($file in $mainFiles) {
+            $relative = $file.FullName.Substring($stage.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $relative"
+          }
+          [System.IO.File]::WriteAllLines((Join-Path $stage 'SHA256SUMS.txt'), [string[]]$mainLines, [System.Text.Encoding]::ASCII)
+          Write-Host "Preview package complete: $($mainFiles.Count) main payload entries and $($toolLines.Count) installer/tool entries."
+
+      - name: Test safe per-user install, update, backup and rollback
+        shell: pwsh
+        run: pwsh -NoProfile -File release/Test-Install-SkellyEQ.ps1 -PackageRoot release-package
 
       - uses: actions/upload-artifact@v6
         with:
