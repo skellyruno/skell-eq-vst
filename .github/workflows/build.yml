@@ -162,15 +162,15 @@ jobs:
             Copy-Item -LiteralPath (Join-Path 'release' $name) -Destination (Join-Path $stage $name) -Force
           }
           Copy-Item -LiteralPath 'V270_RELEASE_NOTES.md' -Destination (Join-Path $stage 'RELEASE-NOTES.txt') -Force
-          $previewText = @'
-SKELLY EQ 2.7.0 — PRIVATE WINDOWS VST3 PREVIEW
-This package is unsigned and preview-only; it is not a commercial release.
-Use a disposable DAW project. Keep the previous VST3 and the generated backup.
-FL Studio host acceptance, real musical A/B, target-hardware CPU/latency,
-licensing/attribution, vendor contact metadata and owner approval remain open.
-SHA-256 manifests detect accidental corruption; they are not digital signatures.
-'@
-          [System.IO.File]::WriteAllText((Join-Path $stage 'PREVIEW-ONLY.txt'), $previewText, [System.Text.UTF8Encoding]::new($false))
+          $previewLines = @(
+            'SKELLY EQ 2.7.0 — PRIVATE WINDOWS VST3 PREVIEW'
+            'This package is unsigned and preview-only; it is not a commercial release.'
+            'Use a disposable DAW project. Keep the previous VST3 and the generated backup.'
+            'FL Studio host acceptance, real musical A/B, target-hardware CPU/latency,'
+            'licensing/attribution, vendor contact metadata and owner approval remain open.'
+            'SHA-256 manifests detect accidental corruption; they are not digital signatures.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $stage 'PREVIEW-ONLY.txt'), [string[]]$previewLines, [System.Text.UTF8Encoding]::new($false))
 
           $bundle = Join-Path $stage 'Skelly EQ.vst3'
           $binary = Join-Path $bundle 'Contents/x86_64-win/Skelly EQ.vst3'
