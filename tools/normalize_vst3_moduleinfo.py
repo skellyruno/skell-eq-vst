@@ -66,6 +66,10 @@ def main() -> None:
     original = args.moduleinfo.read_text(encoding="utf-8-sig")
     normalized = normalized_json(original)
     data = json.loads(normalized)
+    if data.get("Name") != "Skelly EQ":
+        raise ValueError(f"Unexpected VST3 module name: {data.get('Name')!r}")
+    if data.get("Version") != "2.7.0":
+        raise ValueError(f"Unexpected Skelly EQ VST3 version: {data.get('Version')!r}")
     if not isinstance(data.get("Classes"), list) or not data["Classes"]:
         raise ValueError("VST3 moduleinfo must list at least one plugin class")
     ids = [entry["CID"] for entry in data["Classes"]]
