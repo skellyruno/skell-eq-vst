@@ -1,0 +1,22 @@
+SKELLY EQ 2.7.0 — THIRD-PARTY LICENSE / ATTRIBUTION STATUS
+==========================================================
+This inventory is included for preview transparency. It is not legal advice,
+not a license grant, and not evidence that commercial redistribution has been
+approved.
+
+Repository inspection at the source revision used for this preview found no
+root LICENSE, COPYING, or THIRD-PARTY-NOTICES file. The source build references:
+
+- JUCE 8.0.12, fetched from juce-framework/JUCE at the pinned 8.0.12 tag.
+  JUCE is offered under the JUCE licensing model; the owner's applicable
+  commercial/AGPL entitlement and any required notices must be confirmed.
+- Steinberg VST3 SDK headers/tooling through JUCE. The exact SDK license and
+  notice obligations for this build must be checked against the resolved
+  dependency revision.
+- SkellCore / SkellWorld presence headers from skellyruno/skellcore-vst-template
+  at the pinned CMake revision. Their redistribution terms must be confirmed.
+
+Before any public or paid distribution, the owner must approve the complete
+license inventory, include the required license texts/attributions, confirm
+that all included assets are redistributable, and decide the final product
+license. Until then this package remains a private engineering preview only.

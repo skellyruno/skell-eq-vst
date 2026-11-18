@@ -31,7 +31,7 @@ foreach(asset IN LISTS SKELLY_ASSET_FILES)
 endforeach()
 juce_add_binary_data(SkellyAssets SOURCES ${SKELLY_ASSET_FILES})
 juce_add_plugin(SkellyEQ COMPANY_NAME "Skelly Audio" BUNDLE_ID "audio.skelly.eq" PLUGIN_MANUFACTURER_CODE SkAu PLUGIN_CODE SeQ1
-  FORMATS VST3 Standalone PRODUCT_NAME "Skelly EQ" IS_SYNTH FALSE NEEDS_MIDI_INPUT FALSE NEEDS_MIDI_OUTPUT FALSE IS_MIDI_EFFECT FALSE
+  FORMATS VST3 PRODUCT_NAME "Skelly EQ" IS_SYNTH FALSE NEEDS_MIDI_INPUT FALSE NEEDS_MIDI_OUTPUT FALSE IS_MIDI_EFFECT FALSE
   COPY_PLUGIN_AFTER_BUILD FALSE)
 juce_generate_juce_header(SkellyEQ)
 file(GLOB_RECURSE SKELLY_SOURCES CONFIGURE_DEPENDS "Source/*.cpp" "Source/*.h")
@@ -72,4 +72,35 @@ if(SKELLY_BUILD_DSP_TESTS)
   target_compile_features(SkellyLinearReferenceTest PRIVATE cxx_std_17)
   target_include_directories(SkellyLinearReferenceTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests/juce_stub")
   add_test(NAME SkellyLinearReferenceTest COMMAND SkellyLinearReferenceTest)
+endif()
+
+
+# A/B snapshots are host-state data, not just UI memory. Compile the real
+# processor/editor sources into a Windows-only JUCE console harness so CTest
+# exercises the exact APVTS save/restore path used by the VST3.
+option(SKELLY_BUILD_STATE_TESTS "Build JUCE-backed processor state regression tests" ON)
+if(WIN32 AND SKELLY_BUILD_STATE_TESTS)
+  enable_testing()
+  juce_add_console_app(SkellyEQStateTests PRODUCT_NAME "Skelly EQ State Tests")
+  juce_generate_juce_header(SkellyEQStateTests)
+  target_sources(SkellyEQStateTests PRIVATE ${SKELLY_SOURCES} tests/state_roundtrip.cpp)
+  target_include_directories(SkellyEQStateTests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+    "${skellworldpresenceheaders_SOURCE_DIR}/SkellCore/include")
+  target_compile_features(SkellyEQStateTests PRIVATE cxx_std_17)
+  target_compile_definitions(SkellyEQStateTests PRIVATE
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    SKELLY_RESTORED_EDITOR=$<BOOL:${SKELLY_RESTORED_EDITOR}>
+    SKELLY_SAFE_EDITOR=$<BOOL:${SKELLY_SAFE_EDITOR}>
+    SKELLY_DIAGNOSTIC_EDITOR=$<BOOL:${SKELLY_DIAGNOSTIC_EDITOR}>
+    SKELLY_TRACE_LIFECYCLE=$<BOOL:${SKELLY_TRACE_LIFECYCLE}>)
+  target_link_libraries(SkellyEQStateTests PRIVATE
+    SkellyAssets
+    juce::juce_audio_utils
+    juce::juce_audio_processors
+    juce::juce_dsp
+    juce::juce_gui_extra)
+  add_test(NAME SkellyEQStateRoundtrip COMMAND SkellyEQStateTests)
 endif()
