@@ -63,6 +63,10 @@ jobs:
           plugin="$(find build -type d -name 'Skelly EQ.vst3' -print -quit)"
           test -n "$plugin"
           python tools/normalize_vst3_moduleinfo.py "$plugin/Contents/Resources/moduleinfo.json"
+          # Updating moduleinfo changes the bundle resource seal; refresh and verify
+          # the development ad-hoc signature before packaging the macOS VST3.
+          codesign --force --deep --sign - "$plugin"
+          codesign --verify --deep --strict "$plugin"
       - uses: actions/upload-artifact@v6
         with:
           name: SkellyEQ-V2.7-macOS-VST3
