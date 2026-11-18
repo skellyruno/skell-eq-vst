@@ -18,6 +18,15 @@ jobs:
         run: cmake --build build --config Release --parallel 2
       - name: Run DSP regression tests
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Normalize and validate VST3 metadata
+        shell: pwsh
+        run: |
+          python tools/normalize_vst3_moduleinfo.py --self-test
+          $plugins = @(Get-ChildItem -Path build -Recurse -Directory -Filter 'Skelly EQ.vst3')
+          if ($plugins.Count -ne 1) { throw "Expected one VST3 bundle for metadata validation, found $($plugins.Count)" }
+          $metadata = Join-Path $plugins[0].FullName 'Contents/Resources/moduleinfo.json'
+          if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) { throw "VST3 moduleinfo.json missing: $metadata" }
+          python tools/normalize_vst3_moduleinfo.py "$metadata"
       - name: Verify and stage VST3 bundle
         shell: pwsh
         run: |
@@ -47,6 +56,13 @@ jobs:
         run: cmake --build build --config Release --parallel 2
       - name: Run DSP regression tests
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Normalize and validate VST3 metadata
+        shell: bash
+        run: |
+          python tools/normalize_vst3_moduleinfo.py --self-test
+          plugin="$(find build -type d -name 'Skelly EQ.vst3' -print -quit)"
+          test -n "$plugin"
+          python tools/normalize_vst3_moduleinfo.py "$plugin/Contents/Resources/moduleinfo.json"
       - uses: actions/upload-artifact@v6
         with:
           name: SkellyEQ-V2.7-macOS-VST3
