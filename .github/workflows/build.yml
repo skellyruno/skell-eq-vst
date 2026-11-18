@@ -141,9 +141,8 @@ jobs:
               'FL Studio scan, automation, save/reopen and old-project compatibility are not yet accepted',
               'Real music VST3 A/B and user listening approval are pending',
               'Vendor URL and support email are empty in moduleinfo.json',
-              'Target Windows hardware CPU/latency and preset rollback are not yet accepted',
-              'Third-party licensing, asset attribution, code signing and commercial release approval are pending',
-              'Vendor URL and support email remain owner-supplied release metadata'
+              'Target Windows hardware CPU/latency and preset-state recall are not yet accepted',
+              'Third-party licensing, asset attribution, code signing and commercial release approval are pending'
             )
           }
           $manifestPath = Join-Path $PWD 'release-package/build-info.json'

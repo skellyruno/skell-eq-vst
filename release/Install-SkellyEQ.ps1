@@ -3,13 +3,13 @@ param(
     [string]$PackageRoot,
     [string]$RollbackFrom,
     [string]$Vst3Directory = (Join-Path $env:LOCALAPPDATA 'Programs\Common\VST3'),
-    [string]$BackupRoot = (Join-Path $env:LOCALAPPDATA 'Skell Audio\Backups\Skelly-EQ')
+    [string]$BackupRoot = (Join-Path $env:LOCALAPPDATA 'Skelly Audio\Backups\Skelly-EQ')
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $Product = 'Skelly EQ'
-$Vendor = 'Skell Audio'
+$Vendor = 'Skelly Audio'
 $BundleName = 'Skelly EQ.vst3'
 $BinaryRelative = 'Contents\x86_64-win\Skelly EQ.vst3'
 $ExpectedClassIds = @(
