@@ -18,7 +18,7 @@ def normalized_json(source: str) -> str:
             out.append(char)
             if escaped:
                 escaped = False
-            elif char == "\\\\":
+            elif char == "\\":
                 escaped = True
             elif char == '"':
                 quoted = False
@@ -72,7 +72,7 @@ def main() -> None:
     if len(set(ids)) != len(ids):
         raise ValueError("Duplicate plugin class IDs in VST3 moduleinfo")
     if normalized != original:
-        args.moduleinfo.write_text(normalized, encoding="utf-8", newline="\\n")
+        args.moduleinfo.write_text(normalized, encoding="utf-8", newline="\n")
         print(f"Fixed strict JSON in {args.moduleinfo}")
     else:
         print(f"PASS: metadata already valid strict JSON: {args.moduleinfo}")
