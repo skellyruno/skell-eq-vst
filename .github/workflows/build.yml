@@ -27,11 +27,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            $sourceCommit = (git rev-parse HEAD^2).Trim()
+            $parents = (git show -s --format=%P HEAD).Trim() -split ' '
+            if ($parents.Count -lt 2) { throw 'Pull request merge commit has no second parent.' }
+            $sourceCommit = $parents[1]
           } else {
             $sourceCommit = (git rev-parse HEAD).Trim()
           }
-          if ($sourceCommit -notmatch '^[0-9a-f]{40}
+          if ($sourceCommit.Length -ne 40 -or $sourceCommit -match '[^0-9a-f]') { throw "Could not resolve a full source commit SHA: $sourceCommit" }
+          "SOURCE_COMMIT=$sourceCommit" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Package source commit: $sourceCommit"
+
       - name: Validate release source and stable program name
         run: python scripts/check_release_source.py
 
