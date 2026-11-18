@@ -2,7 +2,9 @@ name: Build Skelly EQ (Windows VST3)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
+      - release/eq-safe-windows-vst3-preview-validation-20261118
   pull_request:
     branches: [main]
 
