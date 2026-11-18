@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "EQContourPresets.h"
 #include "Theme.h"
 #include <BinaryData.h>
 static juce::String selectedId(int b,const char* what){return "b"+juce::String(b+1)+"_"+what;}
@@ -40,7 +41,27 @@ SkellyEQAudioProcessorEditor::SkellyEQAudioProcessorEditor(SkellyEQAudioProcesso
   });
 });
  init(ab,[this]{processor.storeSnapshot(abSlot);abSlot=1-abSlot;processor.loadSnapshot(abSlot);ab.setButtonText(abSlot?"B | A":"A | B");});
- init(nextPreset,[this]{juce::PopupMenu m;m.addItem(1,"Flat");m.addItem(2,"Original contour");juce::Component::SafePointer<SkellyEQAudioProcessorEditor> safe(this);m.showMenuAsync(juce::PopupMenu::Options(),[safe](int v){if(!safe||!v)return;const float gains[]={1,-2,-4,-3,-11,-2,7,-1.5f};for(int i=0;i<8;++i)safe->parameterSet(selectedId(i,"gain"),v==1?0.f:gains[i]);});});
+ init(nextPreset,[this]{
+  juce::PopupMenu m;m.addItem(1,"Flat");m.addItem(2,"Original contour");
+  juce::Component::SafePointer<SkellyEQAudioProcessorEditor> safe(this);
+  m.showMenuAsync(juce::PopupMenu::Options(),[safe](int v){
+   if(!safe||!v)return;
+   const auto preset=v==1?skellyeq::contour::Preset::Flat:skellyeq::contour::Preset::OriginalContour;
+   skellyeq::contour::applyPreset(preset,[safe](int band,skellyeq::contour::Field field,float value){
+    const char* suffix=nullptr;
+    switch(field){
+     case skellyeq::contour::Field::Enabled:suffix="enabled";break;
+     case skellyeq::contour::Field::Solo:suffix="solo";break;
+     case skellyeq::contour::Field::Type:suffix="type";break;
+     case skellyeq::contour::Field::Frequency:suffix="freq";break;
+     case skellyeq::contour::Field::Gain:suffix="gain";break;
+     case skellyeq::contour::Field::Q:suffix="q";break;
+     case skellyeq::contour::Field::Channel:suffix="channel";break;
+    }
+    if(suffix)safe->parameterSet(selectedId(band,suffix),value);
+   });
+  });
+ });
  init(previous,[this]{selectBand((selected+7)%8);});init(next,[this]{selectBand((selected+1)%8);});
  init(analyze,[this]{int v=((int)processor.state.getRawParameterValue("analyzeMode")->load()+1)%4;parameterSet("analyzeMode",(float)v);});
  init(stereo,[this]{parameterSet("stereoMode",0);});init(ms,[this]{parameterSet("stereoMode",1);});
