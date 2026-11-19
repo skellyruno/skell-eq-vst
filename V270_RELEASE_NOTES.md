@@ -9,3 +9,5 @@
 - Upgrade GitHub Actions to Node 24-compatible `actions/checkout@v6` and `actions/upload-artifact@v6`; do not suppress upstream JUCE/Apple SDK warnings.
 - Algorithmic latency remains 1,152 samples for linear FIR and zero for minimum phase. FL Studio may re-synchronize transport on a change to the reported latency. Live phase-mode switching is not guaranteed glitch-free.
 - An immediate switch from IIR back to FIR after editing settings can use an older FIR kernel until the background designer publishes the new one; in-host validation remains outstanding.
+
+- Windows preview installer: resolve per-user defaults after parameter binding and fail closed with an actionable message when LOCALAPPDATA is missing or non-absolute; explicit VST3 and backup paths remain supported.

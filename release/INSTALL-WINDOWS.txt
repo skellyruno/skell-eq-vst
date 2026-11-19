@@ -6,6 +6,11 @@ commercial release. Use a disposable DAW project for first host testing.
 DEFAULT PER-USER LOCATION
 %LOCALAPPDATA%\Programs\Common\VST3\Skelly EQ.vst3
 
+If LOCALAPPDATA is missing or not an absolute path, the installer stops before
+modifying an installation. Supply both -Vst3Directory and -BackupRoot to use
+explicit custom paths. It never falls back to Program Files or a machine-wide
+VST3 directory.
+
 REQUIREMENTS
 - Windows 10/11 x64.
 - PowerShell 7.
@@ -35,6 +40,11 @@ checksum tampering, unsafe manifest paths, duplicate entries, reparse points,
 invalid existing targets and unexpected package files. It stages and verifies
 the new bundle before replacement, backs up the old bundle, and restores the
 previous directory if the swap or post-install verification fails.
+
+The helper rejects symbolic links, junctions and other reparse points in the
+package tree and existing install/backup path ancestors. It also rejects
+duplicate or case-ambiguous JSON keys and non-finite JSON values before trusting
+VST3, provenance or backup metadata.
 
 The helper does not change EQ parameters, presets, A/B snapshots, automation
 IDs, serialized host state, FL Studio projects or registry entries. It does not
