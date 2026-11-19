@@ -2,8 +2,8 @@
 param(
     [string]$PackageRoot,
     [string]$RollbackFrom,
-    [string]$Vst3Directory = (Join-Path $env:LOCALAPPDATA 'Programs\Common\VST3'),
-    [string]$BackupRoot = (Join-Path $env:LOCALAPPDATA 'Skelly Audio\Backups\Skelly-EQ')
+    [string]$Vst3Directory,
+    [string]$BackupRoot
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,6 +19,25 @@ $ExpectedClassIds = @(
 
 if ([string]::IsNullOrWhiteSpace($PackageRoot) -eq [string]::IsNullOrWhiteSpace($RollbackFrom)) {
     throw 'Supply exactly one of -PackageRoot or -RollbackFrom.'
+}
+
+# Resolve per-user defaults only after parameter binding. A missing or relative
+# LOCALAPPDATA must never produce an accidental relative or machine-wide path.
+$localAppData = [Environment]::GetEnvironmentVariable('LOCALAPPDATA', 'Process')
+$hasUsableLocalAppData = -not [string]::IsNullOrWhiteSpace($localAppData) -and
+    [System.IO.Path]::IsPathRooted($localAppData)
+if (-not $hasUsableLocalAppData) {
+    if ([string]::IsNullOrWhiteSpace($Vst3Directory) -or [string]::IsNullOrWhiteSpace($BackupRoot)) {
+        throw 'LOCALAPPDATA is unavailable or not an absolute path; supply both -Vst3Directory and -BackupRoot explicitly. No machine-wide fallback is used.'
+    }
+}
+else {
+    if ([string]::IsNullOrWhiteSpace($Vst3Directory)) {
+        $Vst3Directory = Join-Path $localAppData 'Programs\Common\VST3'
+    }
+    if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
+        $BackupRoot = Join-Path $localAppData 'Skelly Audio\Backups\Skelly-EQ'
+    }
 }
 
 function Get-FullPath([string]$Path) {
