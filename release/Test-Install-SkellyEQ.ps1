@@ -39,6 +39,22 @@ function RebuildMainManifest([string]$Root) {
     [System.IO.File]::WriteAllLines((Join-Path $rootPath 'SHA256SUMS.txt'), [string[]]$lines, [System.Text.Encoding]::ASCII)
 }
 
+function NewDirectoryJunction([string]$Link, [string]$Target) {
+    New-Item -ItemType Directory -Path $Target -Force | Out-Null
+    & $env:ComSpec /d /c ('mklink /J "' + $Link + '" "' + $Target + '"') | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Link -PathType Container)) {
+        throw "Could not create test junction: $Link"
+    }
+}
+function RemoveDirectoryJunction([string]$Link) {
+    if (Test-Path -LiteralPath $Link) {
+        & $env:ComSpec /d /c ('rmdir "' + $Link + '"') | Out-Null
+        if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $Link)) {
+            throw "Could not safely remove test junction: $Link"
+        }
+    }
+}
+
 $root = [System.IO.Path]::GetFullPath($PackageRoot)
 $installer = Join-Path $root 'Install-SkellyEQ.ps1'
 if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw 'Packaged installer is missing.' }
@@ -49,6 +65,79 @@ if (-not (Test-Path -LiteralPath (Join-Path $root 'SHA256SUMS.txt') -PathType Le
 
 New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
 try {
+
+    # Strict JSON rejects duplicate/case-ambiguous properties and non-finite numbers
+    # before a package can reach an install destination.
+    $strictJsonRoot = Join-Path $TestRoot 'StrictJsonDuplicate'
+    CopyTree $root $strictJsonRoot
+    $strictBuildInfoPath = Join-Path $strictJsonRoot 'build-info.json'
+    $strictBuildOriginal = [System.IO.File]::ReadAllText($strictBuildInfoPath)
+    $strictBuildDuplicate = $strictBuildOriginal.Replace(
+        '"product": "Skelly EQ",',
+        ('"product": "Skelly EQ",' + [Environment]::NewLine + '  "Product": "Skelly EQ",')
+    )
+    if ($strictBuildDuplicate -ceq $strictBuildOriginal) { throw 'Strict JSON fixture did not find the product key.' }
+    [System.IO.File]::WriteAllText($strictBuildInfoPath, $strictBuildDuplicate, [System.Text.UTF8Encoding]::new($false))
+    $strictJsonTarget = Join-Path $TestRoot 'StrictJsonDuplicateInstall\VST3'
+    AssertThrows {
+        & (Join-Path $strictJsonRoot 'Install-SkellyEQ.ps1') -PackageRoot $strictJsonRoot -Vst3Directory $strictJsonTarget -BackupRoot (Join-Path $TestRoot 'StrictJsonDuplicateInstall\Backups') -Confirm:$false
+    } 'Duplicate/case-ambiguous build-info JSON was accepted.'
+    Assert (-not (Test-Path -LiteralPath $strictJsonTarget)) 'Duplicate build-info JSON modified the install destination.'
+
+    $nonFiniteRoot = Join-Path $TestRoot 'StrictJsonNonFinite'
+    CopyTree $root $nonFiniteRoot
+    $nonFinitePath = Join-Path $nonFiniteRoot 'build-info.json'
+    $nonFiniteOriginal = [System.IO.File]::ReadAllText($nonFinitePath)
+    $nonFiniteJson = $nonFiniteOriginal.Replace('"schema_version": 1,', '"schema_version": NaN,')
+    if ($nonFiniteJson -ceq $nonFiniteOriginal) { throw 'Non-finite JSON fixture did not find schema_version.' }
+    [System.IO.File]::WriteAllText($nonFinitePath, $nonFiniteJson, [System.Text.UTF8Encoding]::new($false))
+    $nonFiniteTarget = Join-Path $TestRoot 'StrictJsonNonFiniteInstall\VST3'
+    AssertThrows {
+        & (Join-Path $nonFiniteRoot 'Install-SkellyEQ.ps1') -PackageRoot $nonFiniteRoot -Vst3Directory $nonFiniteTarget -BackupRoot (Join-Path $TestRoot 'StrictJsonNonFiniteInstall\Backups') -Confirm:$false
+    } 'Non-finite build-info JSON was accepted.'
+    Assert (-not (Test-Path -LiteralPath $nonFiniteTarget)) 'Non-finite build-info JSON modified the install destination.'
+
+    # A package root or any nested package directory containing a junction is rejected.
+    $packageAliasTarget = Join-Path $TestRoot 'PackageAliasTarget'
+    $packageAlias = Join-Path $TestRoot 'PackageAlias'
+    CopyTree $root $packageAliasTarget
+    NewDirectoryJunction $packageAlias $packageAliasTarget
+    try {
+        $aliasInstall = Join-Path $TestRoot 'PackageAliasInstall\VST3'
+        AssertThrows {
+            & $installer -PackageRoot $packageAlias -Vst3Directory $aliasInstall -BackupRoot (Join-Path $TestRoot 'PackageAliasInstall\Backups') -Confirm:$false
+        } 'A junction package root was accepted.'
+        Assert (-not (Test-Path -LiteralPath $aliasInstall)) 'A junction package root modified the install destination.'
+    }
+    finally { RemoveDirectoryJunction $packageAlias }
+
+    $nestedPackage = Join-Path $TestRoot 'NestedReparsePackage'
+    CopyTree $root $nestedPackage
+    $nestedOutside = Join-Path $TestRoot 'NestedReparseOutside'
+    $nestedLink = Join-Path $nestedPackage 'Skelly EQ.vst3\Contents\Resources\External'
+    NewDirectoryJunction $nestedLink $nestedOutside
+    try {
+        $nestedInstall = Join-Path $TestRoot 'NestedReparseInstall\VST3'
+        AssertThrows {
+            & (Join-Path $nestedPackage 'Install-SkellyEQ.ps1') -PackageRoot $nestedPackage -Vst3Directory $nestedInstall -BackupRoot (Join-Path $TestRoot 'NestedReparseInstall\Backups') -Confirm:$false
+        } 'A nested package junction was accepted.'
+        Assert (-not (Test-Path -LiteralPath $nestedInstall)) 'A nested package junction modified the install destination.'
+    }
+    finally { RemoveDirectoryJunction $nestedLink }
+
+    # Existing junction ancestors must be rejected before install or backup writes.
+    $installOutside = Join-Path $TestRoot 'InstallJunctionOutside'
+    $installAlias = Join-Path $TestRoot 'InstallJunctionAlias'
+    NewDirectoryJunction $installAlias $installOutside
+    try {
+        $linkedInstallRoot = Join-Path $installAlias 'Programs\Common\VST3'
+        AssertThrows {
+            & $installer -PackageRoot $root -Vst3Directory $linkedInstallRoot -BackupRoot (Join-Path $TestRoot 'SafeBackups') -Confirm:$false
+        } 'An install path with a junction ancestor was accepted.'
+        Assert (-not (Test-Path -LiteralPath (Join-Path $installOutside 'Programs'))) 'Install wrote through a junction ancestor.'
+    }
+    finally { RemoveDirectoryJunction $installAlias }
+
     # Exercise the default per-user path and the missing-environment failure
     # before the ordinary install/update/rollback scenarios.
     $originalLocalAppData = [Environment]::GetEnvironmentVariable('LOCALAPPDATA', 'Process')
@@ -118,6 +207,20 @@ try {
     Assert (Test-Path -LiteralPath (Join-Path $targetRoot 'Skelly EQ.vst3\Contents\x86_64-win\Skelly EQ.vst3')) 'Installed Windows VST3 module is missing.'
     Assert (-not (Test-Path -LiteralPath $backupRoot)) 'Fresh install created an unnecessary backup.'
 
+
+    $installedInfoPath = Join-Path $targetRoot 'Skelly EQ.vst3\Contents\Resources\moduleinfo.json'
+    $installedInfoOriginal = [System.IO.File]::ReadAllText($installedInfoPath)
+    $installedInfoDuplicate = $installedInfoOriginal.Replace(
+        '"Name": "Skelly EQ",',
+        ('"Name": "Skelly EQ",' + [Environment]::NewLine + '    "name": "Skelly EQ",')
+    )
+    if ($installedInfoDuplicate -ceq $installedInfoOriginal) { throw 'Duplicate moduleinfo fixture did not find the Name key.' }
+    [System.IO.File]::WriteAllText($installedInfoPath, $installedInfoDuplicate, [System.Text.UTF8Encoding]::new($false))
+    AssertThrows {
+        & $installer -PackageRoot $root -Vst3Directory $targetRoot -BackupRoot $backupRoot -Confirm:$false
+    } 'Duplicate/case-ambiguous VST3 moduleinfo JSON was accepted.'
+    [System.IO.File]::WriteAllText($installedInfoPath, $installedInfoOriginal, [System.Text.UTF8Encoding]::new($false))
+
     $same = & $installer -PackageRoot $root -Vst3Directory $targetRoot -BackupRoot $backupRoot -Confirm:$false
     Assert ($same.status -eq 'already-installed') 'Repeat install was not idempotent.'
     Assert ($null -eq $same.backup_path) 'Idempotent install unexpectedly returned a backup.'
@@ -152,6 +255,21 @@ try {
     [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
     RebuildMainManifest $upgradeRoot
 
+
+    $backupOutside = Join-Path $TestRoot 'BackupJunctionOutside'
+    $backupAlias = Join-Path $TestRoot 'BackupJunctionAlias'
+    NewDirectoryJunction $backupAlias $backupOutside
+    try {
+        $linkedBackupRoot = Join-Path $backupAlias 'Backups'
+        AssertThrows {
+            & (Join-Path $upgradeRoot 'Install-SkellyEQ.ps1') -PackageRoot $upgradeRoot -Vst3Directory $targetRoot -BackupRoot $linkedBackupRoot -Confirm:$false
+        } 'A backup path with a junction ancestor was accepted.'
+        $stillInstalled = [System.IO.File]::ReadAllText((Join-Path $targetRoot 'Skelly EQ.vst3\Contents\Resources\moduleinfo.json')) | ConvertFrom-Json
+        Assert ($stillInstalled.Version -eq '2.7.0') 'Rejected junction backup path changed the installed version.'
+        Assert (-not (Test-Path -LiteralPath (Join-Path $backupOutside 'Backups'))) 'Installer wrote through a backup junction ancestor.'
+    }
+    finally { RemoveDirectoryJunction $backupAlias }
+
     $updated = & (Join-Path $upgradeRoot 'Install-SkellyEQ.ps1') -PackageRoot $upgradeRoot -Vst3Directory $targetRoot -BackupRoot $backupRoot -Confirm:$false
     Assert ($updated.status -eq 'installed' -and $updated.version -eq '2.7.1') 'Upgrade did not install the new version.'
     Assert (-not [string]::IsNullOrWhiteSpace([string]$updated.backup_path)) 'Upgrade did not create a verified backup.'
@@ -164,6 +282,20 @@ try {
     AssertThrows {
         & $installer -RollbackFrom $badBackup -Vst3Directory $targetRoot -BackupRoot $backupRoot -Confirm:$false
     } 'Tampered backup was accepted.'
+
+
+    $backupManifestPath = Join-Path $updated.backup_path 'backup-manifest.json'
+    $backupManifestOriginal = [System.IO.File]::ReadAllText($backupManifestPath)
+    $backupManifestDuplicate = $backupManifestOriginal.Replace(
+        '"product": "Skelly EQ",',
+        ('"product": "Skelly EQ",' + [Environment]::NewLine + '    "Product": "Skelly EQ",')
+    )
+    if ($backupManifestDuplicate -ceq $backupManifestOriginal) { throw 'Duplicate backup manifest fixture did not find the product key.' }
+    [System.IO.File]::WriteAllText($backupManifestPath, $backupManifestDuplicate, [System.Text.UTF8Encoding]::new($false))
+    AssertThrows {
+        & $installer -RollbackFrom $updated.backup_path -Vst3Directory $targetRoot -BackupRoot $backupRoot -Confirm:$false
+    } 'Duplicate/case-ambiguous backup manifest JSON was accepted.'
+    [System.IO.File]::WriteAllText($backupManifestPath, $backupManifestOriginal, [System.Text.UTF8Encoding]::new($false))
 
     $rollback = & $installer -RollbackFrom $updated.backup_path -Vst3Directory $targetRoot -BackupRoot $backupRoot -Confirm:$false
     Assert ($rollback.status -eq 'rolled-back' -and $rollback.version -eq '2.7.0') 'Rollback did not restore the previous version.'
@@ -188,7 +320,7 @@ try {
     } 'An invalid existing target was replaced.'
     Assert ((Get-Content -LiteralPath $sentinel -Raw) -eq 'preserve this unrelated directory') 'Invalid target contents were modified.'
 
-    Write-Host "Skelly EQ preview install/update/rollback tests: $script:assertions assertions passed."
+    Write-Host "Skelly EQ preview install/update/rollback tests: $script:assertions assertions passed (strict JSON and reparse-point rejection included)."
 }
 finally {
     if (Test-Path -LiteralPath $TestRoot) {

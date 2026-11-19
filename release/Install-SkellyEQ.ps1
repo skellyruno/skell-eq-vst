@@ -45,17 +45,87 @@ function Get-FullPath([string]$Path) {
     [System.IO.Path]::GetFullPath($Path)
 }
 
+
+function Assert-NoReparsePath([string]$Path) {
+    $full = Get-FullPath $Path
+    $current = $full
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (Test-Path -LiteralPath $current) {
+            $attributes = [System.IO.File]::GetAttributes($current)
+            if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Reparse point rejected in path: $current"
+            }
+        }
+        $parent = [System.IO.Directory]::GetParent($current)
+        if ($null -eq $parent) { break }
+        $current = $parent.FullName
+    }
+}
+
+function Assert-NoReparsePoints([string]$Root) {
+    $rootPath = Get-FullPath $Root
+    if (-not (Test-Path -LiteralPath $rootPath -PathType Container)) {
+        throw "Directory is missing: $rootPath"
+    }
+    Assert-NoReparsePath $rootPath
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($rootPath)
+    while ($pending.Count -gt 0) {
+        $directory = $pending.Pop()
+        foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($directory)) {
+            $attributes = [System.IO.File]::GetAttributes($entry)
+            if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Reparse point rejected in directory tree: $entry"
+            }
+            if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+                $pending.Push($entry)
+            }
+        }
+    }
+}
+
+function Assert-JsonNoDuplicateKeys {
+    param(
+        [Parameter(Mandatory)][System.Text.Json.JsonElement]$Element,
+        [string]$Location = 'root'
+    )
+    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($property in $Element.EnumerateObject()) {
+            if (-not $seen.Add($property.Name)) {
+                throw "Duplicate or case-ambiguous JSON property '$($property.Name)' at $Location"
+            }
+            Assert-JsonNoDuplicateKeys -Element $property.Value -Location "$Location.$($property.Name)"
+        }
+    }
+    elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+        $index = 0
+        foreach ($child in $Element.EnumerateArray()) {
+            Assert-JsonNoDuplicateKeys -Element $child -Location "$Location[$index]"
+            $index++
+        }
+    }
+}
+
+function ConvertFrom-StrictJson {
+    param([Parameter(Mandatory)][string]$Json, [string]$Context = 'JSON')
+    $document = [System.Text.Json.JsonDocument]::Parse($Json)
+    try {
+        Assert-JsonNoDuplicateKeys -Element $document.RootElement -Location $Context
+        return (ConvertFrom-Json -InputObject $Json -Depth 100 -ErrorAction Stop)
+    }
+    finally {
+        $document.Dispose()
+    }
+}
+
 function Get-TreeHash([string]$Directory) {
     $root = Get-FullPath $Directory
     if (-not (Test-Path -LiteralPath $root -PathType Container)) {
         throw "Missing bundle directory: $root"
     }
-    $items = @(Get-ChildItem -LiteralPath $root -Recurse -Force)
-    foreach ($item in $items) {
-        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Reparse point rejected in bundle: $($item.FullName)"
-        }
-    }
+    Assert-NoReparsePoints -Root $root
+    $items = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop)
     $files = @($items | Where-Object { -not $_.PSIsContainer } |
         Sort-Object { $_.FullName.Substring($root.Length).Replace('\', '/') })
     if ($files.Count -eq 0) { throw "Empty bundle: $root" }
@@ -106,6 +176,7 @@ function Read-ChecksumManifest([string]$Root, [string]$Name) {
 
 function Get-BundleEvidence([string]$Bundle) {
     $root = Get-FullPath $Bundle
+    Assert-NoReparsePoints -Root $root
     $infoPath = Join-Path $root 'Contents\Resources\moduleinfo.json'
     $modulePath = Join-Path $root $BinaryRelative
     $contentsPath = Join-Path $root 'Contents'
@@ -118,7 +189,7 @@ function Get-BundleEvidence([string]$Bundle) {
         throw 'Expected exactly one Windows VST3 module in the bundle.'
     }
 
-    $info = [System.IO.File]::ReadAllText($infoPath) | ConvertFrom-Json -ErrorAction Stop
+    $info = ConvertFrom-StrictJson -Json ([System.IO.File]::ReadAllText($infoPath)) -Context 'VST3 moduleinfo.json'
     if ($null -eq $info -or $info -is [array] -or $info.Name -ne $Product -or $info.'Factory Info'.Vendor -ne $Vendor) {
         throw 'VST3 product/vendor metadata mismatch.'
     }
@@ -158,9 +229,10 @@ function Get-BundleEvidence([string]$Bundle) {
 
 function Get-VerifiedPackage([string]$Root) {
     $rootPath = Get-FullPath $Root
+    Assert-NoReparsePoints -Root $rootPath
     $buildInfoPath = Join-Path $rootPath 'build-info.json'
     if (-not (Test-Path -LiteralPath $buildInfoPath -PathType Leaf)) { throw 'Missing build-info.json.' }
-    $build = [System.IO.File]::ReadAllText($buildInfoPath) | ConvertFrom-Json -ErrorAction Stop
+    $build = ConvertFrom-StrictJson -Json ([System.IO.File]::ReadAllText($buildInfoPath)) -Context 'build-info.json'
     if ($build.schema_version -ne 1 -or $build.product -ne $Product -or $build.vendor -ne $Vendor -or $build.format -ne 'VST3' -or
         $build.platform -ne 'windows-x64' -or $build.package_status -ne 'preview-only') {
         throw 'Not a Skelly EQ Windows private-preview package.'
@@ -225,7 +297,7 @@ function Get-VerifiedPackage([string]$Root) {
     }
 
     $verificationPath = Join-Path $rootPath 'Skelly-EQ-moduleinfo-verification.json'
-    $verification = [System.IO.File]::ReadAllText($verificationPath) | ConvertFrom-Json -ErrorAction Stop
+    $verification = ConvertFrom-StrictJson -Json ([System.IO.File]::ReadAllText($verificationPath)) -Context 'moduleinfo-verification.json'
     if ($verification.product -ne $Product -or $verification.vendor -ne $Vendor -or
         $verification.version -ne $evidence.version -or $verification.staged_moduleinfo_sha256 -ne $evidence.moduleinfo_sha256) {
         throw 'Strict moduleinfo verification manifest does not match the staged bundle.'
@@ -267,9 +339,10 @@ function Get-VerifiedPackage([string]$Root) {
 
 function Get-VerifiedBackup([string]$BackupPath) {
     $root = Get-FullPath $BackupPath
+    Assert-NoReparsePoints -Root $root
     $manifestPath = Join-Path $root 'backup-manifest.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Backup manifest is missing.' }
-    $manifest = [System.IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json -ErrorAction Stop
+    $manifest = ConvertFrom-StrictJson -Json ([System.IO.File]::ReadAllText($manifestPath)) -Context 'backup-manifest.json'
     if ($manifest.schema_version -ne 1 -or $manifest.product -ne $Product) { throw 'Unsupported or mismatched backup manifest.' }
     $bundle = Join-Path $root $BundleName
     $evidence = Get-BundleEvidence $bundle
@@ -282,13 +355,22 @@ function Get-VerifiedBackup([string]$BackupPath) {
 }
 
 function New-VerifiedBackup([string]$Bundle, [string]$Reason, [string]$OriginalTarget) {
+    Assert-NoReparsePoints -Root $Bundle
     $evidence = Get-BundleEvidence $Bundle
     $backupRoot = Get-FullPath $BackupRoot
-    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+    Assert-NoReparsePath -Path $backupRoot
+    if (Test-Path -LiteralPath $backupRoot) {
+        if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) { throw "Backup root is not a directory: $backupRoot" }
+    }
+    else {
+        New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop | Out-Null
+    }
+    Assert-NoReparsePoints -Root $backupRoot
     $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
     $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
     $path = Join-Path $backupRoot ("Skelly-EQ-" + $evidence.version + "-" + $stamp + "-" + $suffix)
-    New-Item -ItemType Directory -Path $path | Out-Null
+    New-Item -ItemType Directory -Path $path -ErrorAction Stop | Out-Null
+    Assert-NoReparsePoints -Root $path
     $copy = Join-Path $path $BundleName
     Copy-Item -LiteralPath $Bundle -Destination $copy -Recurse
     $copied = Get-BundleEvidence $copy
@@ -314,8 +396,12 @@ function New-VerifiedBackup([string]$Bundle, [string]$Reason, [string]$OriginalT
 }
 
 function Replace-VerifiedBundle([string]$Source, [string]$Target, [string]$Reason) {
+    Assert-NoReparsePoints -Root $Source
     $expected = Get-BundleEvidence $Source
     $targetRoot = Split-Path -Parent $Target
+    Assert-NoReparsePath -Path $targetRoot
+    Assert-NoReparsePath -Path $Target
+    Assert-NoReparsePath -Path $BackupRoot
     $backupPath = $null
     if (Test-Path -LiteralPath $Target) {
         if (-not (Test-Path -LiteralPath $Target -PathType Container)) {
@@ -378,6 +464,8 @@ function Replace-VerifiedBundle([string]$Source, [string]$Target, [string]$Reaso
 if (-not [string]::IsNullOrWhiteSpace($PackageRoot)) {
     $package = Get-VerifiedPackage $PackageRoot
     $targetRoot = Get-FullPath $Vst3Directory
+    Assert-NoReparsePath -Path $targetRoot
+    Assert-NoReparsePath -Path $BackupRoot
     $target = Join-Path $targetRoot $BundleName
     if (Test-Path -LiteralPath $target -PathType Container) {
         $current = Get-BundleEvidence $target
@@ -395,6 +483,8 @@ if (-not [string]::IsNullOrWhiteSpace($PackageRoot)) {
 else {
     $backup = Get-VerifiedBackup $RollbackFrom
     $targetRoot = Get-FullPath $Vst3Directory
+    Assert-NoReparsePath -Path $targetRoot
+    Assert-NoReparsePath -Path $BackupRoot
     $target = Join-Path $targetRoot $BundleName
     if (Test-Path -LiteralPath $target -PathType Container) {
         $current = Get-BundleEvidence $target
