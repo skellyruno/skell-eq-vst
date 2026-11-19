@@ -5,9 +5,13 @@ on:
     branches:
       - main
       - fix/eq-release-workflow-duplicate-tail-20261118
+      - fix/eq-installer-localappdata-fail-closed-20261119
       - release/eq-safe-windows-vst3-preview-validation-20261118
   pull_request:
-    branches: [main, release/eq-safe-windows-vst3-preview-validation-20261118]
+    branches:
+      - main
+      - release/eq-safe-windows-vst3-preview-validation-20261118
+      - fix/eq-release-workflow-duplicate-tail-20261118
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:

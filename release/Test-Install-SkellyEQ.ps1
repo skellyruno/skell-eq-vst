@@ -49,6 +49,59 @@ if (-not (Test-Path -LiteralPath (Join-Path $root 'SHA256SUMS.txt') -PathType Le
 
 New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
 try {
+    # Exercise the default per-user path and the missing-environment failure
+    # before the ordinary install/update/rollback scenarios.
+    $originalLocalAppData = [Environment]::GetEnvironmentVariable('LOCALAPPDATA', 'Process')
+    try {
+        $env:LOCALAPPDATA = Join-Path $TestRoot 'SyntheticLocalAppData'
+        $defaultDry = & $installer -PackageRoot $root -WhatIf
+        $expectedDefaultTarget = [System.IO.Path]::GetFullPath(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Common\VST3\Skelly EQ.vst3')
+        )
+        Assert ($defaultDry.status -eq 'what-if') 'Default per-user WhatIf did not return a dry-run status.'
+        Assert ($defaultDry.target -eq $expectedDefaultTarget) 'Default per-user target did not resolve under LOCALAPPDATA.'
+        Assert (-not (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Common\VST3'))) 'Default WhatIf created the VST3 directory.'
+        Assert (-not (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Skelly Audio\Backups\Skelly-EQ'))) 'Default WhatIf created the backup directory.'
+
+        Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
+        $missingEnvMessage = $null
+        try {
+            & $installer -PackageRoot $root -WhatIf | Out-Null
+        }
+        catch {
+            $missingEnvMessage = $_.Exception.Message
+        }
+        Assert ($missingEnvMessage -match 'LOCALAPPDATA is unavailable or not an absolute path') 'Missing LOCALAPPDATA did not fail closed with an actionable message.'
+
+        $partialTarget = Join-Path $TestRoot 'NoLocalAppData\Partial\VST3'
+        $partialEnvMessage = $null
+        try {
+            & $installer -PackageRoot $root -Vst3Directory $partialTarget -WhatIf | Out-Null
+        }
+        catch {
+            $partialEnvMessage = $_.Exception.Message
+        }
+        Assert ($partialEnvMessage -match 'supply both -Vst3Directory and -BackupRoot') 'A partial custom path was accepted without LOCALAPPDATA.'
+        Assert (-not (Test-Path -LiteralPath $partialTarget)) 'Partial custom-path failure created the VST3 directory.'
+
+        $explicitTarget = Join-Path $TestRoot 'NoLocalAppData\Explicit\VST3'
+        $explicitBackups = Join-Path $TestRoot 'NoLocalAppData\Explicit\Backups'
+        $explicitDry = & $installer -PackageRoot $root -Vst3Directory $explicitTarget -BackupRoot $explicitBackups -WhatIf
+        $expectedExplicitTarget = [System.IO.Path]::GetFullPath((Join-Path $explicitTarget 'Skelly EQ.vst3'))
+        Assert ($explicitDry.status -eq 'what-if') 'Explicit custom paths failed without LOCALAPPDATA.'
+        Assert ($explicitDry.target -eq $expectedExplicitTarget) 'Explicit custom VST3 path was not preserved.'
+        Assert (-not (Test-Path -LiteralPath $explicitTarget)) 'Explicit custom WhatIf created the VST3 directory.'
+        Assert (-not (Test-Path -LiteralPath $explicitBackups)) 'Explicit custom WhatIf created the backup directory.'
+    }
+    finally {
+        if ($null -eq $originalLocalAppData) {
+            Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:LOCALAPPDATA = $originalLocalAppData
+        }
+    }
+
     $whatIfTarget = Join-Path $TestRoot 'WhatIf\VST3'
     $whatIfBackups = Join-Path $TestRoot 'WhatIf\Backups'
     $dry = & $installer -PackageRoot $root -Vst3Directory $whatIfTarget -BackupRoot $whatIfBackups -WhatIf
